@@ -8,8 +8,9 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   server: {
+    host: true, // bind 0.0.0.0 so docker port-mapping works
     proxy: {
-      '/api': 'http://localhost:8080',
+      '/api': process.env.BACKEND_URL || 'http://localhost:8080',
     },
   },
   build: {
