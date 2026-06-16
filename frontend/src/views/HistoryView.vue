@@ -1,0 +1,250 @@
+<script setup>
+import { ref, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { jobsApi } from '@/api/jobs'
+import { rulesApi } from '@/api/rules'
+import StatusBadge from '@/components/StatusBadge.vue'
+
+const route = useRoute()
+
+const rules = ref([])
+const jobs = ref([])
+const total = ref(0)
+const loading = ref(true)
+const expandedJob = ref(null)
+const jobLogs = ref({})
+const logsLoading = ref(null)
+
+const filterRuleId = ref(route.query.rule_id ? Number(route.query.rule_id) : null)
+const page = ref(0)
+const PAGE_SIZE = 30
+
+onMounted(async () => {
+  rules.value = await rulesApi.list()
+  await loadJobs()
+})
+
+async function loadJobs() {
+  loading.value = true
+  try {
+    const params = { limit: PAGE_SIZE, offset: page.value * PAGE_SIZE }
+    if (filterRuleId.value) params.rule_id = filterRuleId.value
+    const data = await jobsApi.list(params)
+    jobs.value = data.items
+    total.value = data.total
+  } finally {
+    loading.value = false
+  }
+}
+
+async function toggleLogs(job) {
+  if (expandedJob.value === job.id) {
+    expandedJob.value = null
+    return
+  }
+  expandedJob.value = job.id
+  if (jobLogs.value[job.id]) return
+  logsLoading.value = job.id
+  try {
+    const data = await jobsApi.logs(job.id)
+    jobLogs.value[job.id] = data.items
+  } finally {
+    logsLoading.value = null
+  }
+}
+
+function ruleLabel(id) {
+  return rules.value.find((r) => r.id === id)?.label ?? `Rule #${id}`
+}
+
+function fmt(dt) {
+  if (!dt) return '—'
+  return new Date(dt).toLocaleString()
+}
+
+function duration(job) {
+  if (!job.finished_at) return '…'
+  const ms = new Date(job.finished_at) - new Date(job.started_at)
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`
+}
+
+function transferred(bytes) {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let v = bytes, i = 0
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(1)} ${units[i]}`
+}
+
+const totalPages = computed(() => Math.ceil(total.value / PAGE_SIZE))
+
+async function changePage(n) {
+  page.value = n
+  await loadJobs()
+}
+
+async function changeFilter() {
+  page.value = 0
+  await loadJobs()
+}
+
+const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
+</script>
+
+<template>
+  <div>
+    <div class="page-header">
+      <div>
+        <h1>History</h1>
+        <p>Sync job runs and per-file logs.</p>
+      </div>
+      <div class="actions">
+        <select class="input" style="width:200px;" v-model="filterRuleId" @change="changeFilter">
+          <option :value="null">All rules</option>
+          <option v-for="r in rules" :key="r.id" :value="r.id">{{ r.label }}</option>
+        </select>
+        <button class="btn btn-secondary" @click="loadJobs">↺</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div v-if="loading" class="empty-state">
+        <span class="spinner spinner-dark" style="width:24px;height:24px;" />
+      </div>
+      <div v-else-if="jobs.length === 0" class="empty-state">
+        <div class="icon">◷</div>
+        <h3>No jobs yet</h3>
+        <p>Sync runs will appear here after the first job executes.</p>
+      </div>
+      <template v-else>
+        <table class="table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Rule</th>
+              <th>Started</th>
+              <th>Duration</th>
+              <th>Status</th>
+              <th>Added</th>
+              <th>Updated</th>
+              <th>Deleted</th>
+              <th>Transferred</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="job in jobs" :key="job.id">
+              <tr class="job-row" @click="toggleLogs(job)">
+                <td class="expand-col">
+                  <span class="expand-arrow" :class="{ open: expandedJob === job.id }">▶</span>
+                </td>
+                <td>{{ ruleLabel(job.sync_rule_id) }}</td>
+                <td>{{ fmt(job.started_at) }}</td>
+                <td>{{ duration(job) }}</td>
+                <td><StatusBadge :status="job.status" /></td>
+                <td>{{ job.files_added }}</td>
+                <td>{{ job.files_updated }}</td>
+                <td>{{ job.files_deleted }}</td>
+                <td>{{ transferred(job.bytes_transferred) }}</td>
+              </tr>
+              <tr v-if="expandedJob === job.id" class="logs-row">
+                <td colspan="9" class="logs-cell">
+                  <div v-if="logsLoading === job.id" class="log-loading">
+                    <span class="spinner spinner-dark" style="width:14px;height:14px;" /> Loading logs…
+                  </div>
+                  <div v-else-if="!jobLogs[job.id]?.length" class="log-empty">No log entries.</div>
+                  <div v-else class="log-list">
+                    <div
+                      v-for="log in jobLogs[job.id]"
+                      :key="log.id"
+                      class="log-entry"
+                      :class="LOG_LEVEL_CLASS[log.level]"
+                    >
+                      <span class="log-time mono">{{ new Date(log.timestamp).toLocaleTimeString() }}</span>
+                      <span class="log-level">{{ log.level }}</span>
+                      <span class="log-msg">{{ log.message }}</span>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+
+        <!-- Pagination -->
+        <div v-if="totalPages > 1" class="pagination">
+          <button class="btn btn-secondary btn-sm" :disabled="page === 0" @click="changePage(page - 1)">← Prev</button>
+          <span class="page-info">Page {{ page + 1 }} of {{ totalPages }}</span>
+          <button class="btn btn-secondary btn-sm" :disabled="page >= totalPages - 1" @click="changePage(page + 1)">Next →</button>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.job-row { cursor: pointer; }
+.job-row:hover td { background: var(--border-light); }
+
+.expand-col { width: 32px; }
+.expand-arrow {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform .15s;
+}
+.expand-arrow.open { transform: rotate(90deg); }
+
+.logs-row td { padding: 0; }
+.logs-cell {
+  background: #0f1117;
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--primary);
+}
+
+.log-loading, .log-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+  font-size: 12.5px;
+}
+
+.log-list { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
+.log-entry {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #d1d5db;
+  line-height: 1.6;
+}
+.log-entry.log-error { color: #f87171; }
+.log-entry.log-warn { color: #fbbf24; }
+
+.log-time { color: #6b7280; flex-shrink: 0; }
+.log-level {
+  flex-shrink: 0;
+  width: 50px;
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  padding-top: 3px;
+  color: #9ca3af;
+}
+.log-entry.log-error .log-level { color: #f87171; }
+.log-entry.log-warn .log-level { color: #fbbf24; }
+.log-msg { flex: 1; word-break: break-all; }
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px;
+  border-top: 1px solid var(--border);
+}
+.page-info { font-size: 13px; color: var(--text-muted); }
+</style>
