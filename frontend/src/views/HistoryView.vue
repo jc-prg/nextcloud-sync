@@ -252,6 +252,9 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
   background: #0f1117;
   padding: 12px 16px;
   border-bottom: 2px solid var(--primary);
+  /* Prevent the cell from expanding the table beyond the job-row width */
+  max-width: 0;
+  overflow: hidden;
 }
 
 .log-loading, .log-empty {
@@ -262,7 +265,7 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
   font-size: 12.5px;
 }
 
-.log-list { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
+.log-list { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; overflow-x: auto; }
 .log-entry {
   display: flex;
   gap: 10px;
@@ -270,6 +273,7 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
   font-family: 'SF Mono', 'Fira Code', monospace;
   color: #d1d5db;
   line-height: 1.6;
+  min-width: max-content;
 }
 .log-entry.log-error { color: #f87171; }
 .log-entry.log-warn { color: #fbbf24; }
@@ -287,7 +291,7 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
 }
 .log-entry.log-error .log-level { color: #f87171; }
 .log-entry.log-warn .log-level { color: #fbbf24; }
-.log-msg { flex: 1; word-break: break-all; }
+.log-msg { flex: 1; white-space: nowrap; }
 
 .pagination {
   display: flex;
