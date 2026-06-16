@@ -225,9 +225,13 @@ def _build_map(entries: list[DavEntry], root_path: str) -> dict[str, DavEntry]:
 
 
 def _is_changed(src: DavEntry, dst: DavEntry) -> bool:
-    """Return True if the file on source differs from destination."""
-    if src.etag and dst.etag:
-        return src.etag != dst.etag
+    """Return True if the file on source differs from destination.
+
+    ETags are intentionally NOT compared: Nextcloud generates server-specific
+    ETags (based on internal node IDs), so the same file on two different
+    Nextcloud instances will always have different ETags even with identical
+    content. We rely on size + mtime instead.
+    """
     if src.size != dst.size:
         return True
     if src.mtime and dst.mtime:
