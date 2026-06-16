@@ -2,8 +2,8 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+import bcrypt as _bcrypt
 from jose import JWTError, jwt
-from passlib.hash import bcrypt
 
 from backend.config import settings
 
@@ -14,7 +14,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 def verify_password(plain: str) -> bool:
     if not settings.app_password_hash:
         return False
-    return bcrypt.verify(plain, settings.app_password_hash)
+    return _bcrypt.checkpw(plain.encode(), settings.app_password_hash.encode())
+
+
+def hash_password(plain: str) -> str:
+    return _bcrypt.hashpw(plain.encode(), _bcrypt.gensalt()).decode()
 
 
 def is_setup_done() -> bool:

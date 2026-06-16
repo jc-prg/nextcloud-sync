@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status
 
-from backend.auth import create_access_token, is_setup_done, verify_password
+from backend.auth import create_access_token, hash_password, is_setup_done, verify_password
 from backend.config import settings
 from backend.schemas.auth import LoginRequest, SetupRequest, SetupStatus, TokenResponse
 
@@ -20,8 +20,7 @@ async def setup(body: SetupRequest) -> TokenResponse:
     if len(body.password) < 8:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password must be at least 8 characters")
 
-    from passlib.hash import bcrypt
-    hashed = bcrypt.hash(body.password)
+    hashed = hash_password(body.password)
 
     # Persist to .env so it survives restarts
     _write_env_var("APP_PASSWORD_HASH", hashed)
