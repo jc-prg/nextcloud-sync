@@ -79,6 +79,7 @@ class JobStatus(str, enum.Enum):
     success = "success"
     error = "error"
     partial = "partial"
+    aborted = "aborted"
 
 
 class SyncJob(Base):

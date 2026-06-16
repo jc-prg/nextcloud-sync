@@ -42,6 +42,25 @@ async def get_job(
     return job
 
 
+@router.post("/{job_id}/abort", status_code=status.HTTP_200_OK)
+async def abort_job(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+) -> dict:
+    from backend.sync.engine import abort_job as _abort
+
+    result = await db.execute(select(SyncJob).where(SyncJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if job.status != "running":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is not running")
+    if not _abort(job_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is not running")
+    return {"detail": "Abort requested"}
+
+
 @router.get("/{job_id}/logs", response_model=LogListResponse)
 async def get_job_logs(
     job_id: int,

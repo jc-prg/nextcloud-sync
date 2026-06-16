@@ -148,6 +148,7 @@ a { color: var(--primary); text-decoration: none; }
 .badge-warning { background: var(--warning-bg); color: #92400e; }
 .badge-running { background: var(--running-bg); color: #1d4ed8; }
 .badge-partial { background: var(--warning-bg); color: #92400e; }
+.badge-aborted { background: #f3f4f6; color: #6b7280; border: 1px solid #d1d5db; }
 .badge-neutral { background: var(--border-light); color: var(--text-muted); }
 
 /* ── Toggle ──────────────────────────────────── */

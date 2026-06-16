@@ -1,5 +1,6 @@
 """Core sync engine: compare two WebDAV trees and apply changes."""
 
+import asyncio
 import json
 import logging
 import re
@@ -14,6 +15,22 @@ from backend.models import Account, JobStatus, LogLevel, SyncDirection, SyncJob,
 from backend.sync.webdav import DavEntry, WebDAVClient
 
 logger = logging.getLogger(__name__)
+
+# Maps job_id → running asyncio.Task so abort_job() can cancel it
+_running: dict[int, asyncio.Task] = {}
+
+
+def abort_job(job_id: int) -> bool:
+    """Request cancellation of a running sync job. Returns True if found."""
+    task = _running.get(job_id)
+    if task and not task.done():
+        task.cancel()
+        return True
+    return False
+
+
+def running_job_ids() -> list[int]:
+    return [jid for jid, t in _running.items() if not t.done()]
 
 
 async def run_sync(rule_id: int) -> None:
@@ -37,13 +54,21 @@ async def run_sync(rule_id: int) -> None:
         await db.commit()
         await db.refresh(job)
 
+        _running[job.id] = asyncio.current_task()
+        aborted = False
         try:
             await _execute_sync(db, job, rule, src_acc, dst_acc)
+        except asyncio.CancelledError:
+            aborted = True
         except Exception as exc:
             logger.exception("Unhandled error in sync job %d", job.id)
             await _finish_job(db, rule, job, JobStatus.error)
             await _log(db, job.id, LogLevel.error, f"Fatal error: {exc}")
         finally:
+            _running.pop(job.id, None)
+            if aborted:
+                await _finish_job(db, rule, job, JobStatus.aborted)
+                await _log(db, job.id, LogLevel.warning, "Job aborted by user")
             rule.last_run_at = datetime.now(timezone.utc)
             await db.commit()
 

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { jobsApi } from '@/api/jobs'
 import { rulesApi } from '@/api/rules'
@@ -14,18 +14,42 @@ const loading = ref(true)
 const expandedJob = ref(null)
 const jobLogs = ref({})
 const logsLoading = ref(null)
+const aborting = ref(null)
 
 const filterRuleId = ref(route.query.rule_id ? Number(route.query.rule_id) : null)
 const page = ref(0)
 const PAGE_SIZE = 30
 
+let pollTimer = null
+
 onMounted(async () => {
   rules.value = await rulesApi.list()
   await loadJobs()
+  startPolling()
 })
 
-async function loadJobs() {
-  loading.value = true
+onUnmounted(() => stopPolling())
+
+function hasRunningJobs() {
+  return jobs.value.some((j) => j.status === 'running')
+}
+
+function startPolling() {
+  stopPolling()
+  if (hasRunningJobs()) {
+    pollTimer = setInterval(async () => {
+      await loadJobs(true)
+      if (!hasRunningJobs()) stopPolling()
+    }, 3000)
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
+async function loadJobs(silent = false) {
+  if (!silent) loading.value = true
   try {
     const params = { limit: PAGE_SIZE, offset: page.value * PAGE_SIZE }
     if (filterRuleId.value) params.rule_id = filterRuleId.value
@@ -33,7 +57,19 @@ async function loadJobs() {
     jobs.value = data.items
     total.value = data.total
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
+  }
+}
+
+async function abortJob(job) {
+  if (aborting.value === job.id) return
+  aborting.value = job.id
+  try {
+    await jobsApi.abort(job.id)
+    await loadJobs(true)
+    startPolling()
+  } finally {
+    aborting.value = null
   }
 }
 
@@ -83,11 +119,13 @@ const totalPages = computed(() => Math.ceil(total.value / PAGE_SIZE))
 async function changePage(n) {
   page.value = n
   await loadJobs()
+  startPolling()
 }
 
 async function changeFilter() {
   page.value = 0
   await loadJobs()
+  startPolling()
 }
 
 const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
@@ -131,6 +169,7 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
               <th>Updated</th>
               <th>Deleted</th>
               <th>Transferred</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -147,9 +186,20 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
                 <td>{{ job.files_updated }}</td>
                 <td>{{ job.files_deleted }}</td>
                 <td>{{ transferred(job.bytes_transferred) }}</td>
+                <td class="action-col" @click.stop>
+                  <button
+                    v-if="job.status === 'running'"
+                    class="btn btn-danger btn-sm"
+                    :disabled="aborting === job.id"
+                    @click="abortJob(job)"
+                  >
+                    <span v-if="aborting === job.id" class="spinner spinner-dark" style="width:12px;height:12px;" />
+                    Abort
+                  </button>
+                </td>
               </tr>
               <tr v-if="expandedJob === job.id" class="logs-row">
-                <td colspan="9" class="logs-cell">
+                <td colspan="10" class="logs-cell">
                   <div v-if="logsLoading === job.id" class="log-loading">
                     <span class="spinner spinner-dark" style="width:14px;height:14px;" /> Loading logs…
                   </div>
@@ -188,6 +238,7 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
 .job-row:hover td { background: var(--border-light); }
 
 .expand-col { width: 32px; }
+.action-col { width: 80px; text-align: right; }
 .expand-arrow {
   display: inline-block;
   font-size: 10px;
