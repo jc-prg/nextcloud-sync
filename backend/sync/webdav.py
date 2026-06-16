@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 
@@ -61,7 +61,7 @@ class WebDAVClient:
 
     async def propfind(self, path: str, depth: int = 1) -> list[DavEntry]:
         """List entries at *path* with the given *depth* (0, 1, or 'infinity')."""
-        url = self.base_url + path
+        url = self.base_url + _encode_path(path)
         resp = await self._client.request(
             "PROPFIND",
             url,
@@ -72,27 +72,37 @@ class WebDAVClient:
         return _parse_propfind(resp.text, self._base_path)
 
     async def get_bytes(self, path: str) -> bytes:
-        resp = await self._client.get(self.base_url + path)
+        resp = await self._client.get(self.base_url + _encode_path(path))
         resp.raise_for_status()
         return resp.content
 
     async def put_bytes(self, path: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         resp = await self._client.put(
-            self.base_url + path,
+            self.base_url + _encode_path(path),
             content=data,
             headers={"Content-Type": content_type},
         )
         resp.raise_for_status()
 
     async def delete(self, path: str) -> None:
-        resp = await self._client.delete(self.base_url + path)
+        resp = await self._client.delete(self.base_url + _encode_path(path))
         resp.raise_for_status()
 
     async def mkcol(self, path: str) -> None:
         """Create a collection; silently ignore 405 (already exists)."""
-        resp = await self._client.request("MKCOL", self.base_url + path)
+        resp = await self._client.request("MKCOL", self.base_url + _encode_path(path))
         if resp.status_code not in (200, 201, 405):
             resp.raise_for_status()
+
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+
+def _encode_path(path: str) -> str:
+    """Percent-encode a decoded path for use in HTTP requests.
+    Preserves '/' separators; encodes everything else including non-ASCII."""
+    return quote(path, safe="/:@!$&'()*+,;=")
 
 
 # ------------------------------------------------------------------
@@ -118,7 +128,7 @@ def _parse_propfind(xml_text: str, base_path: str) -> list[DavEntry]:
         href_el = response.find(f"{_DAV}href")
         if href_el is None or not href_el.text:
             continue
-        href = href_el.text
+        href = unquote(href_el.text)
 
         # Find the 200-OK propstat block
         prop = None
