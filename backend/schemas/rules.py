@@ -1,6 +1,7 @@
+import json
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from backend.models import SyncDirection
 
@@ -15,6 +16,9 @@ class SyncRuleCreate(BaseModel):
     direction: SyncDirection = SyncDirection.one_way
     schedule_cron: str
     delete_orphans: bool = False
+    exclude_patterns: list[str] = []
+    min_file_size: int | None = None  # bytes
+    max_file_size: int | None = None  # bytes
 
 
 class SyncRuleUpdate(BaseModel):
@@ -27,6 +31,9 @@ class SyncRuleUpdate(BaseModel):
     direction: SyncDirection | None = None
     schedule_cron: str | None = None
     delete_orphans: bool | None = None
+    exclude_patterns: list[str] | None = None
+    min_file_size: int | None = None
+    max_file_size: int | None = None
 
 
 class SyncRuleRead(BaseModel):
@@ -40,7 +47,17 @@ class SyncRuleRead(BaseModel):
     direction: SyncDirection
     schedule_cron: str
     delete_orphans: bool
+    exclude_patterns: list[str] = []
+    min_file_size: int | None
+    max_file_size: int | None
     last_run_at: datetime | None
     next_run_at: datetime | None
+
+    @field_validator("exclude_patterns", mode="before")
+    @classmethod
+    def deserialize_patterns(cls, v):
+        if isinstance(v, str):
+            return json.loads(v) if v else []
+        return v or []
 
     model_config = {"from_attributes": True}

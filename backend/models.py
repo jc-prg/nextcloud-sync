@@ -57,6 +57,11 @@ class SyncRule(Base):
     schedule_cron: Mapped[str] = mapped_column(String, nullable=False)
     delete_orphans: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Exclusion filters
+    exclude_patterns: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list of regex strings
+    min_file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)  # bytes
+    max_file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)  # bytes
+
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

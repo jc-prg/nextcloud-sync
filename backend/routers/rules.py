@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +28,9 @@ async def create_rule(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(get_current_user),
 ) -> SyncRule:
-    rule = SyncRule(**body.model_dump())
+    data = body.model_dump()
+    data["exclude_patterns"] = json.dumps(data["exclude_patterns"]) if data.get("exclude_patterns") else None
+    rule = SyncRule(**data)
     db.add(rule)
     await db.commit()
     await db.refresh(rule)
@@ -53,6 +57,8 @@ async def update_rule(
 ) -> SyncRule:
     rule = await _get_or_404(db, rule_id)
     for field, value in body.model_dump(exclude_none=True).items():
+        if field == "exclude_patterns":
+            value = json.dumps(value) if value else None
         setattr(rule, field, value)
     await db.commit()
     await db.refresh(rule)

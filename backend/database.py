@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 
@@ -28,3 +29,18 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate(conn)
+
+
+async def _migrate(conn) -> None:
+    """Apply additive schema changes to existing databases (poor-man's migration)."""
+    new_columns = [
+        "ALTER TABLE sync_rules ADD COLUMN exclude_patterns TEXT",
+        "ALTER TABLE sync_rules ADD COLUMN min_file_size INTEGER",
+        "ALTER TABLE sync_rules ADD COLUMN max_file_size INTEGER",
+    ]
+    for sql in new_columns:
+        try:
+            await conn.execute(text(sql))
+        except Exception:
+            pass  # column already exists

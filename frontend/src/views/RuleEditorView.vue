@@ -30,13 +30,53 @@ const form = ref({
   direction: 'one_way',
   schedule_cron: '0 3 * * *',
   delete_orphans: false,
+  exclude_patterns: [],
+  min_file_size: null,
+  max_file_size: null,
 })
+
+// Size filter UI state (display value + unit, converted to bytes for the API)
+const minSize = ref({ value: '', unit: 'MB' })
+const maxSize = ref({ value: '', unit: 'MB' })
+const UNITS = { KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3 }
+
+function toBytes(val, unit) {
+  const n = parseFloat(val)
+  return isNaN(n) || n <= 0 ? null : Math.floor(n * UNITS[unit])
+}
+
+function fromBytes(bytes, unit = 'MB') {
+  if (!bytes) return { value: '', unit }
+  if (bytes >= UNITS.GB) return { value: (bytes / UNITS.GB).toFixed(1), unit: 'GB' }
+  if (bytes >= UNITS.MB) return { value: (bytes / UNITS.MB).toFixed(1), unit: 'MB' }
+  return { value: (bytes / UNITS.KB).toFixed(1), unit: 'KB' }
+}
+
+function syncSizes() {
+  form.value.min_file_size = toBytes(minSize.value.value, minSize.value.unit)
+  form.value.max_file_size = toBytes(maxSize.value.value, maxSize.value.unit)
+}
+
+// Pattern list management
+const newPattern = ref('')
+function addPattern() {
+  const p = newPattern.value.trim()
+  if (p && !form.value.exclude_patterns.includes(p)) {
+    form.value.exclude_patterns.push(p)
+  }
+  newPattern.value = ''
+}
+function removePattern(i) {
+  form.value.exclude_patterns.splice(i, 1)
+}
 
 onMounted(async () => {
   accounts.value = await accountsApi.list()
   if (isEdit.value) {
     const rule = await rulesApi.get(ruleId.value)
     Object.assign(form.value, rule)
+    minSize.value = fromBytes(rule.min_file_size)
+    maxSize.value = fromBytes(rule.max_file_size)
   }
   loading.value = false
 })
@@ -69,6 +109,7 @@ function applyCronPreset(val) {
 
 async function save() {
   error.value = ''
+  syncSizes()
   if (!form.value.source_account_id || !form.value.source_path) {
     error.value = 'Please select a source folder.'
     return
@@ -226,6 +267,71 @@ async function save() {
         </div>
       </div>
 
+      <!-- Exclusion filters -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><h2>Exclusion Filters</h2></div>
+        <div class="card-body">
+
+          <!-- Size limits -->
+          <div class="form-grid" style="margin-bottom:20px;">
+            <div class="form-group">
+              <label>Skip files smaller than</label>
+              <div class="size-input">
+                <input
+                  v-model="minSize.value"
+                  type="number" min="0" step="any"
+                  class="input"
+                  placeholder="No minimum"
+                  @change="syncSizes"
+                />
+                <select v-model="minSize.unit" class="input unit-select" @change="syncSizes">
+                  <option>KB</option><option>MB</option><option>GB</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Skip files larger than</label>
+              <div class="size-input">
+                <input
+                  v-model="maxSize.value"
+                  type="number" min="0" step="any"
+                  class="input"
+                  placeholder="No maximum"
+                  @change="syncSizes"
+                />
+                <select v-model="maxSize.unit" class="input unit-select" @change="syncSizes">
+                  <option>KB</option><option>MB</option><option>GB</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Regex patterns -->
+          <div class="form-group">
+            <label>Exclude by filename pattern (regex)</label>
+            <small>Matched against the filename only, case-insensitive. Examples: <span class="mono">\.tmp$</span> &nbsp; <span class="mono">^~</span> &nbsp; <span class="mono">\.(log|bak)$</span></small>
+
+            <div class="pattern-list" v-if="form.exclude_patterns.length">
+              <div v-for="(p, i) in form.exclude_patterns" :key="i" class="pattern-tag">
+                <span class="mono">{{ p }}</span>
+                <button type="button" class="remove-btn" @click="removePattern(i)" title="Remove">✕</button>
+              </div>
+            </div>
+
+            <div class="pattern-add">
+              <input
+                v-model="newPattern"
+                class="input mono"
+                placeholder="e.g. \.tmp$"
+                @keydown.enter.prevent="addPattern"
+              />
+              <button type="button" class="btn btn-secondary btn-sm" @click="addPattern">Add</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
       <div v-if="error" class="alert alert-error" style="margin-bottom:16px;">{{ error }}</div>
 
       <div class="actions">
@@ -251,4 +357,37 @@ async function save() {
   color: var(--primary);
 }
 .placeholder-hint { color: var(--text-muted); font-size: 13px; font-style: italic; }
+
+.size-input { display: flex; gap: 8px; }
+.unit-select { width: 80px; flex-shrink: 0; }
+
+.pattern-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 8px;
+}
+.pattern-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 10px;
+  background: var(--border-light);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12.5px;
+}
+.remove-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+}
+.remove-btn:hover { color: var(--error); }
+
+.pattern-add { display: flex; gap: 8px; margin-top: 8px; }
+.pattern-add .input { flex: 1; }
 </style>

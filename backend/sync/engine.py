@@ -1,7 +1,8 @@
 """Core sync engine: compare two WebDAV trees and apply changes."""
 
-import asyncio
+import json
 import logging
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -71,6 +72,7 @@ async def _execute_sync(
         dst_map = _build_map(dst_tree, rule.dest_path)
 
         has_error = False
+        exclusion = _Exclusion(rule)
 
         # --- Sync source → destination ---
         for rel, src_entry in src_map.items():
@@ -85,6 +87,12 @@ async def _execute_sync(
                     except Exception as exc:
                         await _log(db, job.id, LogLevel.error, f"Failed to create dir {dst_path}: {exc}", dst_path)
                         has_error = True
+                continue
+
+            # Apply exclusion filters
+            excluded, reason = exclusion.check(src_entry)
+            if excluded:
+                await _log(db, job.id, LogLevel.info, f"Skipped: {rel} ({reason})", rel)
                 continue
 
             # File: copy if missing or changed
@@ -145,6 +153,36 @@ async def _execute_sync(
             f"Done — added:{job.files_added} updated:{job.files_updated} "
             f"deleted:{job.files_deleted} bytes:{job.bytes_transferred}"
         )
+
+
+class _Exclusion:
+    """Pre-compiled exclusion filters for a sync rule."""
+
+    def __init__(self, rule: SyncRule) -> None:
+        raw = rule.exclude_patterns
+        patterns = json.loads(raw) if raw else []
+        self._regexes = [re.compile(p) for p in patterns]
+        self._min = rule.min_file_size
+        self._max = rule.max_file_size
+
+    def check(self, entry: DavEntry) -> tuple[bool, str]:
+        """Return (excluded, reason). Only applied to files, not directories."""
+        if self._max is not None and entry.size > self._max:
+            return True, f"size {_fmt_bytes(entry.size)} exceeds max {_fmt_bytes(self._max)}"
+        if self._min is not None and entry.size < self._min:
+            return True, f"size {_fmt_bytes(entry.size)} below min {_fmt_bytes(self._min)}"
+        for rx in self._regexes:
+            if rx.search(entry.name):
+                return True, f"matches pattern {rx.pattern!r}"
+        return False, ""
+
+
+def _fmt_bytes(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
 
 
 def _build_map(entries: list[DavEntry], root_path: str) -> dict[str, DavEntry]:
