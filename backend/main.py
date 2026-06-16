@@ -6,15 +6,33 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.database import init_db
+from backend.database import SessionLocal, init_db
 from backend.routers import accounts, auth, browse, jobs, rules
 from backend.sync.scheduler import SyncScheduler
+
+
+async def _mark_stale_jobs_failed() -> None:
+    """Mark any jobs left in 'running' state (from a previous crash) as 'error'."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import update
+
+    from backend.models import JobStatus, SyncJob
+
+    async with SessionLocal() as db:
+        await db.execute(
+            update(SyncJob)
+            .where(SyncJob.status == JobStatus.running)
+            .values(status=JobStatus.error, finished_at=datetime.now(timezone.utc))
+        )
+        await db.commit()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
+    await _mark_stale_jobs_failed()
 
     scheduler = SyncScheduler()
     scheduler.start()
