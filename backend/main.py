@@ -68,12 +68,20 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
 
     # Serve the built frontend from frontend/dist if it exists
-    import os
     from pathlib import Path
+
+    from fastapi.responses import FileResponse
 
     dist = Path(__file__).parent.parent / "frontend" / "dist"
     if dist.exists():
-        app.mount("/", StaticFiles(directory=str(dist), html=True), name="static")
+        app.mount("/assets", StaticFiles(directory=str(dist / "assets")), name="assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def spa_fallback(full_path: str):
+            file = dist / full_path
+            if file.is_file():
+                return FileResponse(str(file))
+            return FileResponse(str(dist / "index.html"))
 
     return app
 
