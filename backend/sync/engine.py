@@ -220,7 +220,10 @@ class _Exclusion:
 def _exc_detail(exc: Exception) -> str:
     """Return a descriptive error string, including HTTP status and response body for HTTP errors."""
     if isinstance(exc, httpx.HTTPStatusError):
-        body = exc.response.text.strip()
+        try:
+            body = exc.response.text.strip()
+        except Exception:
+            body = ""
         # Truncate long bodies (e.g. HTML error pages)
         if len(body) > 200:
             body = body[:200] + "…"

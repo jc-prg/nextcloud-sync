@@ -89,6 +89,9 @@ class WebDAVClient:
         src_url = self.base_url + _encode_path(src_path)
         dst_url = dst.base_url + _encode_path(dst_path)
         async with self._client.stream("GET", src_url) as get_resp:
+            if get_resp.status_code >= 400:
+                # Read the error body before raising so _exc_detail can access .text
+                await get_resp.aread()
             get_resp.raise_for_status()
             put_resp = await dst._client.put(
                 dst_url,
