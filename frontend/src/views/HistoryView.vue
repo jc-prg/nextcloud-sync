@@ -22,6 +22,9 @@ const PAGE_SIZE = 30
 
 let pollTimer = null
 let logPollTimer = null
+let durationTimer = null
+
+const now = ref(Date.now())
 
 onMounted(async () => {
   rules.value = await rulesApi.list()
@@ -29,15 +32,26 @@ onMounted(async () => {
   startPolling()
 })
 
-onUnmounted(() => { stopPolling(); stopLogPolling() })
+onUnmounted(() => { stopPolling(); stopLogPolling(); stopDurationTimer() })
 
 function hasRunningJobs() {
   return jobs.value.some((j) => j.status === 'running')
 }
 
+function startDurationTimer() {
+  if (!durationTimer) {
+    durationTimer = setInterval(() => { now.value = Date.now() }, 15000)
+  }
+}
+
+function stopDurationTimer() {
+  if (durationTimer) { clearInterval(durationTimer); durationTimer = null }
+}
+
 function startPolling() {
   stopPolling()
   if (hasRunningJobs()) {
+    startDurationTimer()
     pollTimer = setInterval(async () => {
       await loadJobs(true)
       // If the expanded job just finished, do a final log refresh then stop log polling
@@ -49,7 +63,7 @@ function startPolling() {
           jobLogs.value[expandedJob.value] = data.items
         }
       }
-      if (!hasRunningJobs()) stopPolling()
+      if (!hasRunningJobs()) { stopPolling(); stopDurationTimer() }
     }, 3000)
   }
 }
@@ -124,8 +138,8 @@ function fmt(dt) {
 }
 
 function duration(job) {
-  if (!job.finished_at) return '…'
-  const ms = new Date(job.finished_at) - new Date(job.started_at)
+  const end = job.finished_at ? new Date(job.finished_at) : now.value
+  const ms = end - new Date(job.started_at)
   if (ms < 1000) return `${ms}ms`
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
   return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`
@@ -205,7 +219,7 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
                 </td>
                 <td>{{ ruleLabel(job.sync_rule_id) }}</td>
                 <td>{{ fmt(job.started_at) }}</td>
-                <td>{{ duration(job) }}</td>
+                <td :style="job.status === 'running' ? 'color:#60a5fa;font-variant-numeric:tabular-nums' : ''">{{ duration(job) }}</td>
                 <td><StatusBadge :status="job.status" /></td>
                 <td>{{ job.files_added }}</td>
                 <td>{{ job.files_updated }}</td>

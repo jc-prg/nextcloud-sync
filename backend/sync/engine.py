@@ -149,7 +149,11 @@ async def _execute_sync(
         # --- Delete orphans on destination ---
         if rule.delete_orphans:
             for rel in list(dst_map):
-                if rel not in src_map:
+                # Children of excluded subfolders: skip — deleting the root dir handles them recursively
+                if exclusion.is_subfolder_excluded(rel) and not exclusion.is_excluded_subfolder_root(rel):
+                    continue
+                # Delete if: true orphan (not on source) OR root of an excluded subfolder
+                if rel not in src_map or exclusion.is_excluded_subfolder_root(rel):
                     dst_path = rule.dest_path.rstrip("/") + "/" + rel.lstrip("/")
                     try:
                         await dst.delete(dst_path)
@@ -204,6 +208,10 @@ class _Exclusion:
             if rel == sf or rel.startswith(sf + "/"):
                 return True
         return False
+
+    def is_excluded_subfolder_root(self, rel: str) -> bool:
+        """Return True if rel is the root of an excluded subfolder (not a child)."""
+        return rel in self._excluded_subfolders
 
     def check(self, entry: DavEntry) -> tuple[bool, str]:
         """Return (excluded, reason). Only applied to files, not directories."""
