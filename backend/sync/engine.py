@@ -198,9 +198,17 @@ class _Exclusion:
         self._min = rule.min_file_size
         self._max = rule.max_file_size
         raw_sf = rule.exclude_subfolders
-        # Normalise to "/subfolder" so prefix checks are consistent
         subfolders = json.loads(raw_sf) if raw_sf else []
-        self._excluded_subfolders = ["/" + s.strip("/") for s in subfolders]
+        # Strip source_path prefix (SubfolderPicker stores absolute WebDAV paths)
+        # then normalise to "/subfolder" to match the relative keys in src_map/dst_map
+        src_prefix = rule.source_path.rstrip("/")
+        rel_subfolders = []
+        for s in subfolders:
+            s = s.rstrip("/")
+            if s.startswith(src_prefix):
+                s = s[len(src_prefix):]
+            rel_subfolders.append("/" + s.strip("/"))
+        self._excluded_subfolders = rel_subfolders
 
     def is_subfolder_excluded(self, rel: str) -> bool:
         """Return True if rel path is inside (or is) an excluded subfolder."""
