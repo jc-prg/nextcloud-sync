@@ -36,7 +36,7 @@ async function submit() {
   <div class="auth-page">
     <div class="auth-card card">
       <div class="auth-logo">⟳</div>
-      <h1 class="auth-title">NextSync</h1>
+      <h1 class="auth-title">jc://next-sync/</h1>
       <p class="auth-sub">Sign in to manage your sync rules.</p>
 
       <form class="auth-form" @submit.prevent="submit">

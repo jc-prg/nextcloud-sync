@@ -26,7 +26,7 @@ const nav = [
     <aside class="sidebar">
       <div class="sidebar-brand">
         <span class="brand-icon">⟳</span>
-        <span class="brand-name">NextSync</span>
+        <span class="brand-name">jc://next-sync/</span>
       </div>
 
       <nav class="sidebar-nav">
