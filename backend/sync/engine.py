@@ -6,6 +6,8 @@ import logging
 import re
 from datetime import datetime, timezone
 
+import httpx
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -114,7 +116,7 @@ async def _execute_sync(
                         await dst.mkcol(dst_path)
                         await _log(db, job.id, LogLevel.info, f"Created dir: {dst_path}", dst_path)
                     except Exception as exc:
-                        await _log(db, job.id, LogLevel.error, f"Failed to create dir {dst_path}: {exc}", dst_path)
+                        await _log(db, job.id, LogLevel.error, f"Failed to create dir {dst_path}: {_exc_detail(exc)}", dst_path)
                         has_error = True
                 continue
 
@@ -136,13 +138,20 @@ async def _execute_sync(
 
             try:
                 data = await src.get_bytes(src_path)
+            except Exception as exc:
+                job.files_added -= 1 if verb == "Added" else 0
+                job.files_updated -= 1 if verb == "Updated" else 0
+                await _log(db, job.id, LogLevel.error, f"Failed to download {rel}: {_exc_detail(exc)}", rel)
+                has_error = True
+                continue
+            try:
                 await dst.put_bytes(dst_path, data)
                 job.bytes_transferred += len(data)
                 await _log(db, job.id, LogLevel.info, f"{verb}: {rel}", rel)
             except Exception as exc:
                 job.files_added -= 1 if verb == "Added" else 0
                 job.files_updated -= 1 if verb == "Updated" else 0
-                await _log(db, job.id, LogLevel.error, f"Failed to copy {rel}: {exc}", rel)
+                await _log(db, job.id, LogLevel.error, f"Failed to upload {rel}: {_exc_detail(exc)}", rel)
                 has_error = True
 
         # --- Delete orphans on destination ---
@@ -155,7 +164,7 @@ async def _execute_sync(
                         job.files_deleted += 1
                         await _log(db, job.id, LogLevel.info, f"Deleted: {rel}", rel)
                     except Exception as exc:
-                        await _log(db, job.id, LogLevel.error, f"Failed to delete {rel}: {exc}", rel)
+                        await _log(db, job.id, LogLevel.error, f"Failed to delete {rel}: {_exc_detail(exc)}", rel)
                         has_error = True
 
         # --- Two-way: sync destination → source ---
@@ -172,7 +181,7 @@ async def _execute_sync(
                     job.bytes_transferred += len(data)
                     await _log(db, job.id, LogLevel.info, f"Added (from dest): {rel}", rel)
                 except Exception as exc:
-                    await _log(db, job.id, LogLevel.error, f"Failed reverse copy {rel}: {exc}", rel)
+                    await _log(db, job.id, LogLevel.error, f"Failed reverse copy {rel}: {_exc_detail(exc)}", rel)
                     has_error = True
 
         final_status = JobStatus.partial if has_error else JobStatus.success
@@ -215,6 +224,24 @@ class _Exclusion:
             if rx.search(entry.name):
                 return True, f"matches pattern {rx.pattern!r}"
         return False, ""
+
+
+def _exc_detail(exc: Exception) -> str:
+    """Return a descriptive error string, including HTTP status and response body for HTTP errors."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        body = exc.response.text.strip()
+        # Truncate long bodies (e.g. HTML error pages)
+        if len(body) > 200:
+            body = body[:200] + "…"
+        detail = f"HTTP {exc.response.status_code}"
+        if body:
+            detail += f" — {body}"
+        return detail
+    if isinstance(exc, httpx.TimeoutException):
+        return f"Timeout ({type(exc).__name__})"
+    if isinstance(exc, httpx.ConnectError):
+        return f"Connection error: {exc}"
+    return str(exc)
 
 
 def _fmt_bytes(n: int) -> str:
