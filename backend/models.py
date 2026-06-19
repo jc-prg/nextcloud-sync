@@ -58,6 +58,7 @@ class SyncRule(Base):
     delete_orphans: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Exclusion filters
+    exclude_hidden: Mapped[bool] = mapped_column(Boolean, default=True)
     exclude_patterns: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list of regex strings
     exclude_subfolders: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list of subfolder paths relative to source_path
     min_file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)  # bytes

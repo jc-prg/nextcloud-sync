@@ -16,6 +16,7 @@ class SyncRuleCreate(BaseModel):
     direction: SyncDirection = SyncDirection.one_way
     schedule_cron: str
     delete_orphans: bool = False
+    exclude_hidden: bool = True
     exclude_patterns: list[str] = []
     exclude_subfolders: list[str] = []
     min_file_size: int | None = None  # bytes
@@ -32,6 +33,7 @@ class SyncRuleUpdate(BaseModel):
     direction: SyncDirection | None = None
     schedule_cron: str | None = None
     delete_orphans: bool | None = None
+    exclude_hidden: bool | None = None
     exclude_patterns: list[str] | None = None
     exclude_subfolders: list[str] | None = None
     min_file_size: int | None = None
@@ -49,6 +51,7 @@ class SyncRuleRead(BaseModel):
     direction: SyncDirection
     schedule_cron: str
     delete_orphans: bool
+    exclude_hidden: bool
     exclude_patterns: list[str] = []
     exclude_subfolders: list[str] = []
     min_file_size: int | None

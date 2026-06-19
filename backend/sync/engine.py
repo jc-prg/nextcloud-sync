@@ -110,6 +110,10 @@ async def _execute_sync(
             if exclusion.is_subfolder_excluded(rel):
                 continue
 
+            # Skip hidden files/directories (any path component starting with '.')
+            if exclusion.is_hidden_path(rel):
+                continue
+
             if src_entry.is_dir:
                 if rel not in dst_map:
                     try:
@@ -197,6 +201,7 @@ class _Exclusion:
         self._regexes = [re.compile(p) for p in patterns]
         self._min = rule.min_file_size
         self._max = rule.max_file_size
+        self._exclude_hidden = rule.exclude_hidden
         raw_sf = rule.exclude_subfolders
         subfolders = json.loads(raw_sf) if raw_sf else []
         # Strip source_path prefix (SubfolderPicker stores absolute WebDAV paths)
@@ -220,6 +225,12 @@ class _Exclusion:
     def is_excluded_subfolder_root(self, rel: str) -> bool:
         """Return True if rel is the root of an excluded subfolder (not a child)."""
         return rel in self._excluded_subfolders
+
+    def is_hidden_path(self, rel: str) -> bool:
+        """Return True if any component of the relative path starts with '.'."""
+        if not self._exclude_hidden:
+            return False
+        return any(part.startswith(".") for part in rel.strip("/").split("/") if part)
 
     def check(self, entry: DavEntry) -> tuple[bool, str]:
         """Return (excluded, reason). Only applied to files, not directories."""

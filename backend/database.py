@@ -39,6 +39,7 @@ async def _migrate(conn) -> None:
         "ALTER TABLE sync_rules ADD COLUMN exclude_subfolders TEXT",
         "ALTER TABLE sync_rules ADD COLUMN min_file_size INTEGER",
         "ALTER TABLE sync_rules ADD COLUMN max_file_size INTEGER",
+        "ALTER TABLE sync_rules ADD COLUMN exclude_hidden BOOLEAN NOT NULL DEFAULT 1",
     ]
     for sql in new_columns:
         try:

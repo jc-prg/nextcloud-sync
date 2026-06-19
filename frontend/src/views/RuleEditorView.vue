@@ -27,6 +27,7 @@ const form = ref({
   source_account_id: null,
   source_path: null,
   exclude_subfolders: [],
+  exclude_hidden: true,
   dest_account_id: null,
   dest_path: null,
   direction: 'one_way',
@@ -288,6 +289,17 @@ async function save() {
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header"><h2>Exclusion Filters</h2></div>
         <div class="card-body">
+
+          <!-- Hidden files -->
+          <div class="form-group" style="flex-direction:row;align-items:center;gap:10px;margin-bottom:20px;">
+            <label class="toggle">
+              <input type="checkbox" v-model="form.exclude_hidden" />
+              <span class="toggle-track" />
+            </label>
+            <span style="font-size:13px;">
+              <strong>Exclude hidden files and folders</strong> — skip files and directories whose name starts with <span class="mono">.</span>
+            </span>
+          </div>
 
           <!-- Size limits -->
           <div class="form-grid" style="margin-bottom:20px;">
