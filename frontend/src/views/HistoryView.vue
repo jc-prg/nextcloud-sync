@@ -132,14 +132,20 @@ function ruleLabel(id) {
   return rules.value.find((r) => r.id === id)?.label ?? `Rule #${id}`
 }
 
+// SQLite returns naive ISO strings (no Z); append Z so JS treats them as UTC
+function parseUTC(dt) {
+  if (!dt) return null
+  return new Date(/[Z+]/.test(dt.slice(-6)) ? dt : dt + 'Z')
+}
+
 function fmt(dt) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleString()
+  return parseUTC(dt).toLocaleString()
 }
 
 function duration(job) {
-  const end = job.finished_at ? new Date(job.finished_at) : now.value
-  const ms = end - new Date(job.started_at)
+  const end = job.finished_at ? parseUTC(job.finished_at) : now.value
+  const ms = end - parseUTC(job.started_at)
   if (ms < 1000) return `${ms}ms`
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
   return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`
@@ -250,7 +256,7 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
                       class="log-entry"
                       :class="LOG_LEVEL_CLASS[log.level]"
                     >
-                      <span class="log-time mono">{{ new Date(log.timestamp).toLocaleTimeString() }}</span>
+                      <span class="log-time mono">{{ parseUTC(log.timestamp).toLocaleTimeString() }}</span>
                       <span class="log-level">{{ log.level }}</span>
                       <span class="log-msg">{{ log.message }}</span>
                     </div>
