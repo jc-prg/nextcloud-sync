@@ -2,6 +2,7 @@
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { backendOnline } from '@/stores/connectivity'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,6 +49,10 @@ const nav = [
     </aside>
 
     <main class="content">
+      <div v-if="!backendOnline" class="offline-banner">
+        <span class="offline-icon">⚠</span>
+        Backend unreachable — retrying…
+      </div>
       <RouterView />
     </main>
   </div>
@@ -128,4 +133,19 @@ const nav = [
   overflow-y: auto;
   padding: 28px 32px;
 }
+
+.offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  padding: 10px 16px;
+  background: #451a03;
+  border: 1px solid #92400e;
+  border-radius: var(--radius);
+  color: #fbbf24;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.offline-icon { font-size: 15px; }
 </style>

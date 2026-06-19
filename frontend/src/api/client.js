@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { markOffline, markOnline } from '@/stores/connectivity'
 
 const api = axios.create({ baseURL: '/api' })
 
@@ -9,12 +10,18 @@ api.interceptors.request.use((config) => {
 })
 
 api.interceptors.response.use(
-  (r) => r,
+  (r) => { markOnline(); return r },
   (err) => {
-    // Don't redirect on 401 from auth endpoints — those handle errors themselves
-    if (err.response?.status === 401 && !err.config?.url?.includes('/auth/')) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+    if (!err.response) {
+      // No response at all — server is unreachable
+      markOffline()
+    } else {
+      markOnline()
+      // Don't redirect on 401 from auth endpoints — those handle errors themselves
+      if (err.response.status === 401 && !err.config?.url?.includes('/auth/')) {
+        localStorage.removeItem('token')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
   },
