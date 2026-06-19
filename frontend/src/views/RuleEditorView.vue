@@ -297,7 +297,7 @@ async function save() {
               <span class="toggle-track" />
             </label>
             <span style="font-size:13px;">
-              <strong>Exclude hidden files and folders</strong> — skip files and directories whose name starts with <span class="mono">.</span>
+              <strong>Exclude hidden and temporary files</strong> — skip entries whose name starts with <span class="mono">.</span>, contains <span class="mono">~</span>, or ends with <span class="mono">.bak</span> / <span class="mono">.tmp</span>
             </span>
           </div>
 

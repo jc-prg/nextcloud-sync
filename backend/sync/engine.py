@@ -227,10 +227,15 @@ class _Exclusion:
         return rel in self._excluded_subfolders
 
     def is_hidden_path(self, rel: str) -> bool:
-        """Return True if any component of the relative path starts with '.'."""
+        """Return True if any component of the relative path matches hidden/temp patterns."""
         if not self._exclude_hidden:
             return False
-        return any(part.startswith(".") for part in rel.strip("/").split("/") if part)
+        for part in rel.strip("/").split("/"):
+            if not part:
+                continue
+            if part.startswith(".") or "~" in part or part.lower().endswith((".bak", ".tmp")):
+                return True
+        return False
 
     def check(self, entry: DavEntry) -> tuple[bool, str]:
         """Return (excluded, reason). Only applied to files, not directories."""
