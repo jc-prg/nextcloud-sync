@@ -36,6 +36,7 @@ async def _migrate(conn) -> None:
     """Apply additive schema changes to existing databases (poor-man's migration)."""
     new_columns = [
         "ALTER TABLE sync_rules ADD COLUMN exclude_patterns TEXT",
+        "ALTER TABLE sync_rules ADD COLUMN exclude_subfolders TEXT",
         "ALTER TABLE sync_rules ADD COLUMN min_file_size INTEGER",
         "ALTER TABLE sync_rules ADD COLUMN max_file_size INTEGER",
     ]

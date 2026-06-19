@@ -8,6 +8,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { rulesApi } from '@/api/rules'
 import { accountsApi } from '@/api/accounts'
 import FolderTree from '@/components/FolderTree.vue'
+import SubfolderPicker from '@/components/SubfolderPicker.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,6 +26,7 @@ const form = ref({
   enabled: true,
   source_account_id: null,
   source_path: null,
+  exclude_subfolders: [],
   dest_account_id: null,
   dest_path: null,
   direction: 'one_way',
@@ -186,7 +188,7 @@ async function save() {
             <template v-if="sourceAccount">
               <div v-if="form.source_path" class="selected-path">
                 <span class="mono">{{ form.source_path }}</span>
-                <button type="button" class="btn btn-ghost btn-sm" @click="form.source_path = null">Change</button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="form.source_path = null; form.exclude_subfolders = []">Change</button>
               </div>
               <FolderTree
                 v-else
@@ -196,6 +198,16 @@ async function save() {
               <small v-if="!form.source_path">Click a folder to select it as source.</small>
             </template>
             <p v-else class="placeholder-hint">Select an account first.</p>
+          </div>
+
+          <div v-if="form.source_path && form.source_account_id" class="form-group">
+            <label>Subfolders to sync</label>
+            <small>Uncheck subfolders you want to exclude from the sync.</small>
+            <SubfolderPicker
+              :account-id="form.source_account_id"
+              :path="form.source_path"
+              v-model="form.exclude_subfolders"
+            />
           </div>
         </div>
       </div>

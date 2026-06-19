@@ -30,6 +30,7 @@ async def create_rule(
 ) -> SyncRule:
     data = body.model_dump()
     data["exclude_patterns"] = json.dumps(data["exclude_patterns"]) if data.get("exclude_patterns") else None
+    data["exclude_subfolders"] = json.dumps(data["exclude_subfolders"]) if data.get("exclude_subfolders") else None
     rule = SyncRule(**data)
     db.add(rule)
     await db.commit()
@@ -57,7 +58,7 @@ async def update_rule(
 ) -> SyncRule:
     rule = await _get_or_404(db, rule_id)
     for field, value in body.model_dump(exclude_none=True).items():
-        if field == "exclude_patterns":
+        if field in ("exclude_patterns", "exclude_subfolders"):
             value = json.dumps(value) if value else None
         setattr(rule, field, value)
     await db.commit()

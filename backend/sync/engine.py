@@ -104,6 +104,10 @@ async def _execute_sync(
             dst_path = rule.dest_path.rstrip("/") + "/" + rel.lstrip("/")
             src_path = rule.source_path.rstrip("/") + "/" + rel.lstrip("/")
 
+            # Skip entries inside excluded subfolders
+            if exclusion.is_subfolder_excluded(rel):
+                continue
+
             if src_entry.is_dir:
                 if rel not in dst_map:
                     try:
@@ -189,6 +193,17 @@ class _Exclusion:
         self._regexes = [re.compile(p) for p in patterns]
         self._min = rule.min_file_size
         self._max = rule.max_file_size
+        raw_sf = rule.exclude_subfolders
+        # Normalise to "/subfolder" so prefix checks are consistent
+        subfolders = json.loads(raw_sf) if raw_sf else []
+        self._excluded_subfolders = ["/" + s.strip("/") for s in subfolders]
+
+    def is_subfolder_excluded(self, rel: str) -> bool:
+        """Return True if rel path is inside (or is) an excluded subfolder."""
+        for sf in self._excluded_subfolders:
+            if rel == sf or rel.startswith(sf + "/"):
+                return True
+        return False
 
     def check(self, entry: DavEntry) -> tuple[bool, str]:
         """Return (excluded, reason). Only applied to files, not directories."""

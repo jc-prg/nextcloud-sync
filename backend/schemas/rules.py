@@ -17,6 +17,7 @@ class SyncRuleCreate(BaseModel):
     schedule_cron: str
     delete_orphans: bool = False
     exclude_patterns: list[str] = []
+    exclude_subfolders: list[str] = []
     min_file_size: int | None = None  # bytes
     max_file_size: int | None = None  # bytes
 
@@ -32,6 +33,7 @@ class SyncRuleUpdate(BaseModel):
     schedule_cron: str | None = None
     delete_orphans: bool | None = None
     exclude_patterns: list[str] | None = None
+    exclude_subfolders: list[str] | None = None
     min_file_size: int | None = None
     max_file_size: int | None = None
 
@@ -48,14 +50,15 @@ class SyncRuleRead(BaseModel):
     schedule_cron: str
     delete_orphans: bool
     exclude_patterns: list[str] = []
+    exclude_subfolders: list[str] = []
     min_file_size: int | None
     max_file_size: int | None
     last_run_at: datetime | None
     next_run_at: datetime | None
 
-    @field_validator("exclude_patterns", mode="before")
+    @field_validator("exclude_patterns", "exclude_subfolders", mode="before")
     @classmethod
-    def deserialize_patterns(cls, v):
+    def deserialize_json_list(cls, v):
         if isinstance(v, str):
             return json.loads(v) if v else []
         return v or []
