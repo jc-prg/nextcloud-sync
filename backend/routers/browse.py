@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/browse", tags=["browse"])
 async def browse(
     account_id: int = Query(...),
     path: str = Query(default="/"),
+    depth: int = Query(default=1, ge=1, le=2),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(get_current_user),
 ) -> BrowseResponse:
@@ -27,7 +28,7 @@ async def browse(
     try:
         password = decrypt(account.password_enc)
         async with WebDAVClient(account.webdav_url, account.username, password) as client:
-            raw_entries = await client.propfind(path, depth=1)
+            raw_entries = await client.propfind(path, depth=depth)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
