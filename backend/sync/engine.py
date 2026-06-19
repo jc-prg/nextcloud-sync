@@ -137,21 +137,13 @@ async def _execute_sync(
                 job.files_added += 1
 
             try:
-                data = await src.get_bytes(src_path)
-            except Exception as exc:
-                job.files_added -= 1 if verb == "Added" else 0
-                job.files_updated -= 1 if verb == "Updated" else 0
-                await _log(db, job.id, LogLevel.error, f"Failed to download {rel}: {_exc_detail(exc)}", rel)
-                has_error = True
-                continue
-            try:
-                await dst.put_bytes(dst_path, data)
-                job.bytes_transferred += len(data)
+                await src.copy_to(src_path, dst, dst_path, src_entry.size)
+                job.bytes_transferred += src_entry.size
                 await _log(db, job.id, LogLevel.info, f"{verb}: {rel}", rel)
             except Exception as exc:
                 job.files_added -= 1 if verb == "Added" else 0
                 job.files_updated -= 1 if verb == "Updated" else 0
-                await _log(db, job.id, LogLevel.error, f"Failed to upload {rel}: {_exc_detail(exc)}", rel)
+                await _log(db, job.id, LogLevel.error, f"Failed to copy {rel}: {_exc_detail(exc)}", rel)
                 has_error = True
 
         # --- Delete orphans on destination ---
@@ -175,10 +167,9 @@ async def _execute_sync(
                 src_path = rule.source_path.rstrip("/") + "/" + rel.lstrip("/")
                 dst_path = rule.dest_path.rstrip("/") + "/" + rel.lstrip("/")
                 try:
-                    data = await dst.get_bytes(dst_path)
-                    await src.put_bytes(src_path, data)
+                    await dst.copy_to(dst_path, src, src_path, dst_entry.size)
                     job.files_added += 1
-                    job.bytes_transferred += len(data)
+                    job.bytes_transferred += dst_entry.size
                     await _log(db, job.id, LogLevel.info, f"Added (from dest): {rel}", rel)
                 except Exception as exc:
                     await _log(db, job.id, LogLevel.error, f"Failed reverse copy {rel}: {_exc_detail(exc)}", rel)

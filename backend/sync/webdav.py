@@ -34,7 +34,9 @@ class WebDAVClient:
     async def __aenter__(self) -> "WebDAVClient":
         self._client = httpx.AsyncClient(
             auth=self._auth,
-            timeout=60.0,
+            # connect/pool timeouts are absolute; read/write are per-chunk so large
+            # files don't time out as long as each chunk arrives within the window.
+            timeout=httpx.Timeout(connect=30.0, read=120.0, write=120.0, pool=10.0),
             follow_redirects=True,
         )
         return self
@@ -70,6 +72,33 @@ class WebDAVClient:
         )
         resp.raise_for_status()
         return _parse_propfind(resp.text, self._base_path)
+
+    async def copy_to(
+        self,
+        src_path: str,
+        dst: "WebDAVClient",
+        dst_path: str,
+        size: int,
+        chunk_size: int = 256 * 1024,
+    ) -> None:
+        """Stream-copy a file from this server to dst without buffering it in memory.
+
+        Uses a chunked GET piped directly into a PUT so memory usage is bounded
+        to one chunk at a time regardless of file size.
+        """
+        src_url = self.base_url + _encode_path(src_path)
+        dst_url = dst.base_url + _encode_path(dst_path)
+        async with self._client.stream("GET", src_url) as get_resp:
+            get_resp.raise_for_status()
+            put_resp = await dst._client.put(
+                dst_url,
+                content=get_resp.aiter_bytes(chunk_size=chunk_size),
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(size),
+                },
+            )
+            put_resp.raise_for_status()
 
     async def get_bytes(self, path: str) -> bytes:
         resp = await self._client.get(self.base_url + _encode_path(path))
