@@ -48,7 +48,7 @@ async function confirmDelete() {
 
 function fmt(dt) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleString()
+  return new Date(/[Z+]/.test(dt.slice(-6)) ? dt : dt + 'Z').toLocaleString()
 }
 </script>
 
