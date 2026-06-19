@@ -21,6 +21,7 @@ const page = ref(0)
 const PAGE_SIZE = 30
 
 let pollTimer = null
+let logPollTimer = null
 
 onMounted(async () => {
   rules.value = await rulesApi.list()
@@ -28,7 +29,7 @@ onMounted(async () => {
   startPolling()
 })
 
-onUnmounted(() => stopPolling())
+onUnmounted(() => { stopPolling(); stopLogPolling() })
 
 function hasRunningJobs() {
   return jobs.value.some((j) => j.status === 'running')
@@ -39,6 +40,15 @@ function startPolling() {
   if (hasRunningJobs()) {
     pollTimer = setInterval(async () => {
       await loadJobs(true)
+      // If the expanded job just finished, do a final log refresh then stop log polling
+      if (expandedJob.value) {
+        const job = jobs.value.find((j) => j.id === expandedJob.value)
+        if (job && job.status !== 'running') {
+          stopLogPolling()
+          const data = await jobsApi.logs(expandedJob.value)
+          jobLogs.value[expandedJob.value] = data.items
+        }
+      }
       if (!hasRunningJobs()) stopPolling()
     }, 3000)
   }
@@ -46,6 +56,18 @@ function startPolling() {
 
 function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
+function startLogPolling(jobId) {
+  stopLogPolling()
+  logPollTimer = setInterval(async () => {
+    const data = await jobsApi.logs(jobId)
+    jobLogs.value[jobId] = data.items
+  }, 15000)
+}
+
+function stopLogPolling() {
+  if (logPollTimer) { clearInterval(logPollTimer); logPollTimer = null }
 }
 
 async function loadJobs(silent = false) {
@@ -76,16 +98,19 @@ async function abortJob(job) {
 async function toggleLogs(job) {
   if (expandedJob.value === job.id) {
     expandedJob.value = null
+    stopLogPolling()
     return
   }
   expandedJob.value = job.id
-  if (jobLogs.value[job.id]) return
   logsLoading.value = job.id
   try {
     const data = await jobsApi.logs(job.id)
     jobLogs.value[job.id] = data.items
   } finally {
     logsLoading.value = null
+  }
+  if (job.status === 'running') {
+    startLogPolling(job.id)
   }
 }
 
