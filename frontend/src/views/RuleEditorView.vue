@@ -79,6 +79,9 @@ onMounted(async () => {
     Object.assign(form.value, rule)
     minSize.value = fromBytes(rule.min_file_size)
     maxSize.value = fromBytes(rule.max_file_size)
+    const match = CRON_PRESETS.find((p) => p.value !== '__custom__' && p.value === rule.schedule_cron)
+    selectedPreset.value = match ? match.value : '__custom__'
+    if (!match) cronMode.value = 'custom'
   }
   loading.value = false
 })
@@ -100,6 +103,8 @@ const CRON_PRESETS = [
 ]
 
 const cronMode = ref('preset')
+const selectedPreset = ref('0 3 * * *')
+
 function applyCronPreset(val) {
   if (val !== '__custom__') {
     form.value.schedule_cron = val
@@ -250,7 +255,7 @@ async function save() {
           <div class="form-grid">
             <div class="form-group">
               <label>Schedule preset</label>
-              <select class="input" @change="applyCronPreset($event.target.value)">
+              <select class="input" v-model="selectedPreset" @change="applyCronPreset(selectedPreset)">
                 <option v-for="p in CRON_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
               </select>
             </div>
