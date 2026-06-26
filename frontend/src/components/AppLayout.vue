@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
@@ -7,10 +8,15 @@ import { backendOnline } from '@/stores/connectivity'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const mobileMenuOpen = ref(false)
 
 function logout() {
   auth.logout()
   router.push('/login')
+}
+
+function closeMobileMenu() {
+  mobileMenuOpen.value = false
 }
 
 const nav = [
@@ -23,6 +29,7 @@ const nav = [
 
 <template>
   <div class="layout">
+    <!-- Desktop sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
         <span class="brand-icon">⟳</span>
@@ -47,6 +54,35 @@ const nav = [
         <span>Logout</span>
       </button>
     </aside>
+
+    <!-- Mobile header -->
+    <header class="mobile-header">
+      <div class="mobile-brand">
+        <span class="brand-icon">⟳</span>
+        <span class="brand-name">jc://next-sync/</span>
+      </div>
+      <button class="hamburger" @click="mobileMenuOpen = !mobileMenuOpen" :aria-expanded="mobileMenuOpen">
+        <span></span><span></span><span></span>
+      </button>
+      <!-- Dropdown -->
+      <div v-if="mobileMenuOpen" class="mobile-dropdown">
+        <RouterLink
+          v-for="item in nav"
+          :key="item.path"
+          :to="item.path"
+          class="nav-item"
+          :class="{ active: route.path.startsWith(item.path) }"
+          @click="closeMobileMenu"
+        >
+          <span class="nav-icon">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
+        </RouterLink>
+        <button class="nav-item logout-btn" @click="logout">
+          <span class="nav-icon">⎋</span>
+          <span>Logout</span>
+        </button>
+      </div>
+    </header>
 
     <main class="content">
       <div v-if="!backendOnline" class="offline-banner">
@@ -148,4 +184,65 @@ const nav = [
   font-weight: 500;
 }
 .offline-icon { font-size: 15px; }
+
+/* Mobile header */
+.mobile-header {
+  display: none;
+  position: relative;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  height: 54px;
+  background: var(--sidebar-bg);
+  flex-shrink: 0;
+  z-index: 100;
+}
+.mobile-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mobile-brand .brand-icon { font-size: 20px; color: var(--sidebar-accent); }
+.mobile-brand .brand-name { font-size: 15px; font-weight: 700; color: #fff; }
+
+.hamburger {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+}
+.hamburger span {
+  display: block;
+  height: 2px;
+  background: #fff;
+  border-radius: 2px;
+  transition: opacity .15s;
+}
+
+.mobile-dropdown {
+  position: absolute;
+  top: 54px;
+  left: 0;
+  right: 0;
+  background: var(--sidebar-bg);
+  border-top: 1px solid rgba(255,255,255,.06);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  box-shadow: 0 8px 16px rgba(0,0,0,.25);
+}
+
+@media (max-width: 640px) {
+  .sidebar { display: none; }
+  .mobile-header { display: flex; }
+  .layout { flex-direction: column; }
+  .content { padding: 16px; }
+}
 </style>
