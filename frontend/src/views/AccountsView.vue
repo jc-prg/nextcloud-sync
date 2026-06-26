@@ -9,7 +9,7 @@ const saving = ref(false)
 const testing = ref(null)
 const testResults = ref({})
 const deleteTarget = ref(null)
-const editTarget = ref(null) // null = closed, {} = new, {id,...} = edit
+const editTarget = ref(undefined) // undefined = closed, null = new, {id,...} = edit
 
 const form = ref(emptyForm())
 
@@ -21,12 +21,7 @@ onMounted(load)
 
 async function load() {
   loading.value = true
-  try {
-    accounts.value = await accountsApi.list()
-    if (accounts.value.length === 0 && !formOpen()) openNew()
-  } finally {
-    loading.value = false
-  }
+  try { accounts.value = await accountsApi.list() } finally { loading.value = false }
 }
 
 function openNew() {
