@@ -43,7 +43,18 @@ async function runNow(rule) {
 
 function fmt(dt) {
   if (!dt) return '—'
-  return new Date(/[Z+]/.test(dt.slice(-6)) ? dt : dt + 'Z').toLocaleString()
+  const d = new Date(/[Z+]/.test(dt.slice(-6)) ? dt : dt + 'Z')
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  const sameDay = (a, b) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  const timeStr = d.toLocaleTimeString()
+  if (sameDay(d, today)) return `today<br>${timeStr}`
+  if (sameDay(d, yesterday)) return `yesterday<br>${timeStr}`
+  return `${d.toLocaleDateString()}<br>${timeStr}`
 }
 
 function transferred(bytes) {
@@ -97,7 +108,7 @@ function transferred(bytes) {
         <div class="rule-card-meta" v-if="latestJobs[rule.id]">
           <div class="meta-item">
             <span class="meta-label">Last run</span>
-            <span>{{ fmt(latestJobs[rule.id]?.started_at) }}</span>
+            <span v-html="fmt(latestJobs[rule.id]?.started_at)"></span>
           </div>
           <div class="meta-item">
             <span class="meta-label">Added</span>
