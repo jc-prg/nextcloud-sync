@@ -99,6 +99,7 @@ async def _execute_sync(
         dst_map = _build_map(dst_tree, rule.dest_path)
 
         has_error = False
+        files_excluded = 0
         exclusion = _Exclusion(rule)
 
         # --- Sync source → destination ---
@@ -108,10 +109,14 @@ async def _execute_sync(
 
             # Skip entries inside excluded subfolders
             if exclusion.is_subfolder_excluded(rel):
+                if not src_entry.is_dir:
+                    files_excluded += 1
                 continue
 
             # Skip hidden files/directories (any path component starting with '.')
             if exclusion.is_hidden_path(rel):
+                if not src_entry.is_dir:
+                    files_excluded += 1
                 continue
 
             if src_entry.is_dir:
@@ -127,6 +132,7 @@ async def _execute_sync(
             # Apply exclusion filters
             excluded, reason = exclusion.check(src_entry)
             if excluded:
+                files_excluded += 1
                 await _log(db, job.id, LogLevel.info, f"Skipped: {rel} ({reason})", rel)
                 continue
 
@@ -188,7 +194,7 @@ async def _execute_sync(
         await _log(
             db, job.id, LogLevel.info,
             f"Done — added:{job.files_added} updated:{job.files_updated} "
-            f"deleted:{job.files_deleted} bytes:{job.bytes_transferred}"
+            f"deleted:{job.files_deleted} excluded:{files_excluded} bytes:{job.bytes_transferred}"
         )
 
 
