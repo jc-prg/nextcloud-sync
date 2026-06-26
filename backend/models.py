@@ -24,6 +24,7 @@ class Account(Base):
     webdav_url: Mapped[str] = mapped_column(String, nullable=False)
     username: Mapped[str] = mapped_column(String, nullable=False)
     password_enc: Mapped[str] = mapped_column(String, nullable=False)
+    storage_limit_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     source_rules: Mapped[list["SyncRule"]] = relationship(

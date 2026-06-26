@@ -37,6 +37,7 @@ async def create_account(
         webdav_url=body.webdav_url.rstrip("/"),
         username=body.username,
         password_enc=encrypt(body.password),
+        storage_limit_bytes=body.storage_limit_bytes,
     )
     db.add(account)
     await db.commit()
@@ -69,6 +70,8 @@ async def update_account(
         account.username = body.username
     if body.password is not None:
         account.password_enc = encrypt(body.password)
+    if "storage_limit_bytes" in body.model_fields_set:
+        account.storage_limit_bytes = body.storage_limit_bytes
     await db.commit()
     await db.refresh(account)
     return account

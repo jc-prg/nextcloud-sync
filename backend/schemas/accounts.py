@@ -8,6 +8,7 @@ class AccountCreate(BaseModel):
     webdav_url: str
     username: str
     password: str
+    storage_limit_bytes: int | None = None
 
 
 class AccountUpdate(BaseModel):
@@ -15,6 +16,7 @@ class AccountUpdate(BaseModel):
     webdav_url: str | None = None
     username: str | None = None
     password: str | None = None
+    storage_limit_bytes: int | None = None
 
 
 class AccountRead(BaseModel):
@@ -22,6 +24,7 @@ class AccountRead(BaseModel):
     label: str
     webdav_url: str
     username: str
+    storage_limit_bytes: int | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

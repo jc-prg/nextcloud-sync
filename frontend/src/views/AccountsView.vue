@@ -14,7 +14,7 @@ const editTarget = ref(null) // null = closed, {} = new, {id,...} = edit
 const form = ref(emptyForm())
 
 function emptyForm() {
-  return { label: '', webdav_url: '', username: '', password: '' }
+  return { label: '', webdav_url: '', username: '', password: '', storage_limit_gb: '' }
 }
 
 onMounted(load)
@@ -31,7 +31,13 @@ function openNew() {
 
 function openEdit(account) {
   editTarget.value = account
-  form.value = { label: account.label, webdav_url: account.webdav_url, username: account.username, password: '' }
+  form.value = {
+    label: account.label,
+    webdav_url: account.webdav_url,
+    username: account.username,
+    password: '',
+    storage_limit_gb: account.storage_limit_bytes != null ? (account.storage_limit_bytes / 1073741824).toFixed(2).replace(/\.?0+$/, '') : '',
+  }
 }
 
 function closeForm() {
@@ -43,12 +49,18 @@ const formOpen = () => editTarget.value !== undefined
 async function save() {
   saving.value = true
   try {
+    const limitBytes = form.value.storage_limit_gb !== '' && form.value.storage_limit_gb !== null
+      ? Math.round(parseFloat(form.value.storage_limit_gb) * 1073741824)
+      : null
     if (editTarget.value) {
-      const payload = { ...form.value }
+      const payload = { ...form.value, storage_limit_bytes: limitBytes }
+      delete payload.storage_limit_gb
       if (!payload.password) delete payload.password
       await accountsApi.update(editTarget.value.id, payload)
     } else {
-      await accountsApi.create(form.value)
+      const payload = { ...form.value, storage_limit_bytes: limitBytes }
+      delete payload.storage_limit_gb
+      await accountsApi.create(payload)
     }
     await load()
     editTarget.value = undefined
@@ -113,6 +125,11 @@ async function confirmDelete() {
           <div class="form-group">
             <label>Password{{ editTarget ? ' (leave blank to keep current)' : '' }}</label>
             <input v-model="form.password" type="password" class="input" autocomplete="new-password" />
+          </div>
+          <div class="form-group">
+            <label>Max Storage (GB) <span style="font-weight:400;color:var(--text-muted);">— optional</span></label>
+            <input v-model="form.storage_limit_gb" type="number" min="0" step="0.1" class="input" placeholder="leave blank to use server quota" />
+            <small>Caps the usable storage shown in the dashboard; useful when sharing a server with others.</small>
           </div>
         </div>
         <div style="margin-top:16px;display:flex;gap:8px;">

@@ -80,11 +80,22 @@ function fmtBytes(bytes) {
   return `${v.toFixed(1)} ${units[i]}`
 }
 
-function usedPercent(account) {
+function effectiveQuota(account) {
   const q = quotas.value[account.id]
-  if (!q || q.used == null || q.available == null) return null
-  const total = q.used + q.available
-  return total > 0 ? Math.round((q.used / total) * 100) : 0
+  if (!q || q.used == null) return null
+  const serverTotal = q.available != null ? q.used + q.available : null
+  const limit = account.storage_limit_bytes ?? null
+  const effectiveTotal = (serverTotal != null && limit != null)
+    ? Math.min(serverTotal, limit)
+    : (limit ?? serverTotal)
+  const effectiveFree = effectiveTotal != null ? Math.max(0, effectiveTotal - q.used) : q.available
+  return { used: q.used, free: effectiveFree, total: effectiveTotal, capped: limit != null }
+}
+
+function usedPercent(account) {
+  const eq = effectiveQuota(account)
+  if (!eq || eq.total == null || eq.total === 0) return null
+  return Math.min(100, Math.round((eq.used / eq.total) * 100))
 }
 </script>
 
@@ -133,11 +144,14 @@ function usedPercent(account) {
             </template>
             <template v-else>
               <div class="quota-bar-wrap">
-                <div class="quota-bar" :style="`width:${usedPercent(account)}%`" :class="usedPercent(account) >= 90 ? 'quota-bar-warn' : ''"></div>
+                <div class="quota-bar" :style="`width:${usedPercent(account) ?? 0}%`" :class="(usedPercent(account) ?? 0) >= 90 ? 'quota-bar-warn' : ''"></div>
               </div>
               <div class="quota-labels">
-                <span>Used: {{ fmtBytes(quotas[account.id]?.used) }}</span>
-                <span>Free: {{ fmtBytes(quotas[account.id]?.available) }}</span>
+                <span>Used: {{ fmtBytes(effectiveQuota(account)?.used) }}</span>
+                <span>
+                  Free: {{ fmtBytes(effectiveQuota(account)?.free) }}
+                  <span v-if="effectiveQuota(account)?.capped" class="quota-cap-hint">(capped)</span>
+                </span>
               </div>
             </template>
           </div>
@@ -252,6 +266,7 @@ function usedPercent(account) {
 }
 .quota-bar-warn { background: #ef4444; }
 .quota-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); }
+.quota-cap-hint { font-size: 11px; opacity: .7; }
 .quota-error, .quota-unknown { font-size: 12px; color: var(--text-muted); }
 
 .rules-grid {
