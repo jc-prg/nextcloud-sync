@@ -140,7 +140,18 @@ function parseUTC(dt) {
 
 function fmt(dt) {
   if (!dt) return '—'
-  return parseUTC(dt).toLocaleString()
+  const d = parseUTC(dt)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  const sameDay = (a, b) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  const timeStr = d.toLocaleTimeString()
+  if (sameDay(d, today)) return `today ${timeStr}`
+  if (sameDay(d, yesterday)) return `yesterday ${timeStr}`
+  return d.toLocaleString()
 }
 
 function duration(job) {
