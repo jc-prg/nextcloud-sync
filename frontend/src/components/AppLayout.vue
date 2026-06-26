@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
@@ -9,6 +9,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const mobileMenuOpen = ref(false)
+const mobileHeaderRef = ref(null)
 
 function logout() {
   auth.logout()
@@ -18,6 +19,15 @@ function logout() {
 function closeMobileMenu() {
   mobileMenuOpen.value = false
 }
+
+function onClickOutside(e) {
+  if (mobileMenuOpen.value && mobileHeaderRef.value && !mobileHeaderRef.value.contains(e.target)) {
+    mobileMenuOpen.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', onClickOutside))
+onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 const nav = [
   { path: '/dashboard', label: 'Dashboard', icon: '◈' },
@@ -56,7 +66,7 @@ const nav = [
     </aside>
 
     <!-- Mobile header -->
-    <header class="mobile-header">
+    <header class="mobile-header" ref="mobileHeaderRef">
       <div class="mobile-brand">
         <span class="brand-icon">⟳</span>
         <span class="brand-name">jc://next-sync/</span>
