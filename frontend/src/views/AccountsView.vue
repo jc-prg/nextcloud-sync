@@ -21,7 +21,12 @@ onMounted(load)
 
 async function load() {
   loading.value = true
-  try { accounts.value = await accountsApi.list() } finally { loading.value = false }
+  try {
+    accounts.value = await accountsApi.list()
+    if (accounts.value.length === 0 && !formOpen()) openNew()
+  } finally {
+    loading.value = false
+  }
 }
 
 function openNew() {
