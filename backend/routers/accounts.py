@@ -85,6 +85,22 @@ async def delete_account(
     await db.commit()
 
 
+@router.get("/{account_id}/quota")
+async def get_quota(
+    account_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(get_current_user),
+) -> dict:
+    account = await _get_or_404(db, account_id)
+    try:
+        password = decrypt(account.password_enc)
+        async with WebDAVClient(account.webdav_url, account.username, password) as client:
+            used, available = await client.get_quota()
+        return {"used": used, "available": available}
+    except Exception as exc:
+        return {"used": None, "available": None, "error": str(exc)}
+
+
 @router.post("/{account_id}/test", response_model=ConnectionTestResult)
 async def test_connection(
     account_id: int,

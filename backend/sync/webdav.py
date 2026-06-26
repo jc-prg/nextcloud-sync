@@ -126,6 +126,47 @@ class WebDAVClient:
         if resp.status_code not in (200, 201, 405):
             resp.raise_for_status()
 
+    async def get_quota(self) -> tuple[int | None, int | None]:
+        """Return (used_bytes, available_bytes) via RFC 4331 quota props.
+
+        Returns None for a value when the server doesn't report it or
+        returns a sentinel (negative number means unlimited/unknown).
+        """
+        resp = await self._client.request(
+            "PROPFIND",
+            self.base_url + "/",
+            headers={"Depth": "0", "Content-Type": "application/xml"},
+            content=_QUOTA_BODY,
+        )
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+        prop = None
+        for response in root.iter(f"{_DAV}response"):
+            for ps in response.findall(f"{_DAV}propstat"):
+                status_el = ps.find(f"{_DAV}status")
+                if status_el is not None and "200" in (status_el.text or ""):
+                    prop = ps.find(f"{_DAV}prop")
+                    break
+            if prop is not None:
+                break
+        if prop is None:
+            return None, None
+
+        def _quota_int(tag: str) -> int | None:
+            el = prop.find(tag)
+            if el is not None and el.text:
+                try:
+                    v = int(el.text)
+                    return v if v >= 0 else None
+                except ValueError:
+                    pass
+            return None
+
+        return (
+            _quota_int(f"{_DAV}quota-used-bytes"),
+            _quota_int(f"{_DAV}quota-available-bytes"),
+        )
+
 
 # ------------------------------------------------------------------
 # Helpers
@@ -148,6 +189,14 @@ _PROPFIND_BODY = b"""<?xml version="1.0"?>
     <d:getlastmodified/>
     <d:getcontentlength/>
     <d:getetag/>
+  </d:prop>
+</d:propfind>"""
+
+_QUOTA_BODY = b"""<?xml version="1.0"?>
+<d:propfind xmlns:d="DAV:">
+  <d:prop>
+    <d:quota-used-bytes/>
+    <d:quota-available-bytes/>
   </d:prop>
 </d:propfind>"""
 

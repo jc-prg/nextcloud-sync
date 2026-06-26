@@ -7,4 +7,5 @@ export const accountsApi = {
   update: (id, data) => api.patch(`/accounts/${id}`, data).then((r) => r.data),
   delete: (id) => api.delete(`/accounts/${id}`),
   test: (id) => api.post(`/accounts/${id}/test`).then((r) => r.data),
+  quota: (id) => api.get(`/accounts/${id}/quota`).then((r) => r.data),
 }
