@@ -80,6 +80,15 @@ function fmtBytes(bytes) {
   return `${v.toFixed(1)} ${units[i]}`
 }
 
+function accountRoles(account) {
+  const isSource = rules.value.some((r) => r.source_account_id === account.id)
+  const isDest = rules.value.some((r) => r.dest_account_id === account.id)
+  if (isSource && isDest) return ['source', 'destination']
+  if (isSource) return ['source']
+  if (isDest) return ['destination']
+  return []
+}
+
 function effectiveQuota(account) {
   const q = quotas.value[account.id]
   if (!q || q.used == null) return null
@@ -132,7 +141,13 @@ function usedPercent(account) {
       <div v-else class="accounts-grid" style="margin-bottom:40px;">
         <div v-for="account in accounts" :key="account.id" class="account-card card">
           <div class="account-card-top">
-            <div class="account-name">{{ account.label }}</div>
+            <div class="account-card-title">
+              <div class="account-name">{{ account.label }}</div>
+              <div class="account-roles">
+                <span v-for="role in accountRoles(account)" :key="role" class="role-badge" :class="`role-${role}`">{{ role }}</span>
+                <span v-if="accountRoles(account).length === 0" class="role-badge role-unused">unused</span>
+              </div>
+            </div>
             <div class="account-url mono">{{ account.username }}@{{ account.webdav_url.replace(/https?:\/\//, '') }}</div>
           </div>
           <div class="account-quota">
@@ -247,7 +262,13 @@ function usedPercent(account) {
 }
 .account-card { padding: 0; overflow: hidden; }
 .account-card-top { padding: 14px 16px 12px; }
-.account-name { font-weight: 600; font-size: 14px; margin-bottom: 3px; }
+.account-card-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+.account-name { font-weight: 600; font-size: 14px; }
+.account-roles { display: flex; gap: 4px; flex-shrink: 0; }
+.role-badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 2px 6px; border-radius: 4px; }
+.role-source { background: #1e3a5f; color: #93c5fd; }
+.role-destination { background: #1a3a2a; color: #6ee7b7; }
+.role-unused { background: var(--border-light); color: var(--text-muted); }
 .account-url { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .account-quota { padding: 10px 16px 14px; border-top: 1px solid var(--border-light); }
