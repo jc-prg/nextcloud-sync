@@ -24,17 +24,38 @@ const emit = defineEmits(['update:modelValue'])
 const allEntries = ref([])
 const loading = ref(false)
 const error = ref(null)
+const removedPaths = ref([])  // stale excluded paths pruned after last load
+const newPaths = ref([])      // paths in tree not seen in previous load
 
 onMounted(load)
 watch(() => [props.accountId, props.path], load)
 
 async function load() {
+  const previousPaths = allEntries.value.map((e) => e.path)
   allEntries.value = []
+  removedPaths.value = []
+  newPaths.value = []
   error.value = null
   loading.value = true
   try {
     const data = await browseApi.list(props.accountId, props.path, 2)
-    allEntries.value = data.entries.filter((e) => e.is_dir)
+    const dirs = data.entries.filter((e) => e.is_dir)
+    allEntries.value = dirs
+
+    const currentPaths = new Set(dirs.map((e) => e.path))
+
+    // Prune excluded paths that no longer exist
+    const stale = props.modelValue.filter((p) => !currentPaths.has(p))
+    if (stale.length > 0) {
+      removedPaths.value = stale
+      emit('update:modelValue', props.modelValue.filter((p) => currentPaths.has(p)))
+    }
+
+    // Track newly appeared folders (only meaningful on reload, not first load)
+    if (previousPaths.length > 0) {
+      const prev = new Set(previousPaths)
+      newPaths.value = dirs.map((e) => e.path).filter((p) => !prev.has(p))
+    }
   } catch (err) {
     error.value = err?.response?.data?.detail || err?.message || 'Failed to load subfolders'
   } finally {
@@ -92,17 +113,26 @@ function name(path) {
       No subfolders
     </div>
     <template v-else>
+      <div v-if="removedPaths.length > 0" class="sf-notice sf-notice-removed">
+        {{ removedPaths.length }} excluded subfolder{{ removedPaths.length > 1 ? 's' : '' }} no longer exist and {{ removedPaths.length > 1 ? 'were' : 'was' }} removed:
+        <span v-for="p in removedPaths" :key="p" class="sf-notice-path">{{ name(p) }}</span>
+      </div>
+      <div v-if="newPaths.length > 0" class="sf-notice sf-notice-new">
+        {{ newPaths.length }} new subfolder{{ newPaths.length > 1 ? 's' : '' }} found and included in sync:
+        <span v-for="p in newPaths" :key="p" class="sf-notice-path">{{ name(p) }}</span>
+      </div>
       <template v-for="item in tree" :key="item.path">
-        <label class="sf-item" :class="{ excluded: isExcluded(item.path) }">
+        <label class="sf-item" :class="{ excluded: isExcluded(item.path), 'sf-new': newPaths.includes(item.path) }">
           <input type="checkbox" :checked="!isExcluded(item.path)" @change="toggle(item.path)" />
           <span class="sf-icon">📁</span>
           <span class="sf-name">{{ name(item.path) }}</span>
+          <span v-if="newPaths.includes(item.path)" class="sf-new-badge">new</span>
         </label>
         <label
           v-for="child in item.children"
           :key="child"
           class="sf-item sf-item-child"
-          :class="{ excluded: isExcluded(child) || isExcluded(item.path) }"
+          :class="{ excluded: isExcluded(child) || isExcluded(item.path), 'sf-new': newPaths.includes(child) }"
         >
           <input
             type="checkbox"
@@ -112,6 +142,7 @@ function name(path) {
           />
           <span class="sf-icon">📁</span>
           <span class="sf-name">{{ name(child) }}</span>
+          <span v-if="newPaths.includes(child)" class="sf-new-badge">new</span>
         </label>
       </template>
     </template>
@@ -157,4 +188,34 @@ function name(path) {
 .sf-icon { font-size: 14px; flex-shrink: 0; }
 .sf-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 input[type="checkbox"] { flex-shrink: 0; cursor: pointer; accent-color: var(--primary); }
+
+.sf-notice {
+  font-size: 12px;
+  padding: 6px 10px;
+  margin: 4px 4px 0;
+  border-radius: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.sf-notice-removed { background: #3a1a1a; color: #fca5a5; }
+.sf-notice-new { background: #1a3a2a; color: #6ee7b7; }
+.sf-notice-path {
+  font-family: monospace;
+  background: rgba(255,255,255,.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.sf-new-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #1a3a2a;
+  color: #6ee7b7;
+  flex-shrink: 0;
+}
 </style>
