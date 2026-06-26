@@ -27,6 +27,7 @@ const form = ref({
   source_account_id: null,
   source_path: null,
   exclude_subfolders: [],
+  known_subfolders: [],
   exclude_hidden: true,
   dest_account_id: null,
   dest_path: null,
@@ -213,6 +214,8 @@ async function save() {
               :account-id="form.source_account_id"
               :path="form.source_path"
               v-model="form.exclude_subfolders"
+              :known-subfolders="form.known_subfolders"
+              @update:known-subfolders="form.known_subfolders = $event"
             />
           </div>
         </div>

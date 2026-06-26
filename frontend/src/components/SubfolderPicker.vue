@@ -18,14 +18,17 @@ const props = defineProps({
   accountId: { type: Number, required: true },
   path: { type: String, required: true },
   modelValue: { type: Array, default: () => [] },
+  // All subfolder paths seen when the rule was last saved.
+  // Used to detect new folders on first load of an edit form.
+  knownSubfolders: { type: Array, default: null },
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'update:knownSubfolders'])
 
 const allEntries = ref([])
 const loading = ref(false)
 const error = ref(null)
 const removedPaths = ref([])  // stale excluded paths pruned after last load
-const newPaths = ref([])      // paths in tree not seen in previous load
+const newPaths = ref([])      // paths in tree not seen at last save
 
 onMounted(load)
 watch(() => [props.accountId, props.path], load)
@@ -51,11 +54,19 @@ async function load() {
       emit('update:modelValue', props.modelValue.filter((p) => currentPaths.has(p)))
     }
 
-    // Track newly appeared folders (only meaningful on reload, not first load)
-    if (previousPaths.length > 0) {
-      const prev = new Set(previousPaths)
-      newPaths.value = dirs.map((e) => e.path).filter((p) => !prev.has(p))
+    // Detect new folders:
+    // On first load, compare against knownSubfolders (saved at last edit).
+    // On reload within the same session, compare against previous in-memory tree.
+    const referenceSet = previousPaths.length > 0
+      ? new Set(previousPaths)
+      : props.knownSubfolders !== null ? new Set(props.knownSubfolders) : null
+
+    if (referenceSet !== null) {
+      newPaths.value = [...currentPaths].filter((p) => !referenceSet.has(p))
     }
+
+    // Update knownSubfolders to the current tree so it's saved with the rule
+    emit('update:knownSubfolders', [...currentPaths])
   } catch (err) {
     error.value = err?.response?.data?.detail || err?.message || 'Failed to load subfolders'
   } finally {
