@@ -149,9 +149,9 @@ function fmt(dt) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   const timeStr = d.toLocaleTimeString()
-  if (sameDay(d, today)) return `today ${timeStr}`
-  if (sameDay(d, yesterday)) return `yesterday ${timeStr}`
-  return d.toLocaleString()
+  if (sameDay(d, today)) return `today<br>${timeStr}`
+  if (sameDay(d, yesterday)) return `yesterday<br>${timeStr}`
+  return `${d.toLocaleDateString()}<br>${timeStr}`
 }
 
 function duration(job) {
@@ -235,7 +235,7 @@ const LOG_LEVEL_CLASS = { info: '', warning: 'log-warn', error: 'log-error' }
                   <span class="expand-arrow" :class="{ open: expandedJob === job.id }">▶</span>
                 </td>
                 <td>{{ ruleLabel(job.sync_rule_id) }}</td>
-                <td>{{ fmt(job.started_at) }}</td>
+                <td v-html="fmt(job.started_at)"></td>
                 <td :style="job.status === 'running' ? 'color:#60a5fa;font-variant-numeric:tabular-nums' : ''">{{ duration(job) }}</td>
                 <td><StatusBadge :status="job.status" /></td>
                 <td>{{ job.files_added }}</td>
