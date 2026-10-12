@@ -128,6 +128,14 @@ function usedPercent(account) {
     </div>
 
     <template v-else>
+      <!-- Overview graph -->
+      <template v-if="accounts.length > 0">
+        <div class="section-header">
+          <h2>Overview</h2>
+        </div>
+        <OverviewGraph :accounts="accounts" :rules="rules" style="margin-bottom:40px;" />
+      </template>
+
       <!-- Accounts -->
       <div class="section-header">
         <h2>Accounts</h2>
@@ -173,14 +181,6 @@ function usedPercent(account) {
           </div>
         </div>
       </div>
-
-      <!-- Overview graph -->
-      <template v-if="accounts.length > 0">
-        <div class="section-header">
-          <h2>Overview</h2>
-        </div>
-        <OverviewGraph :accounts="accounts" :rules="rules" style="margin-bottom:40px;" />
-      </template>
 
       <!-- Sync Rules -->
       <div class="section-header">
