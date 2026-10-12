@@ -211,8 +211,13 @@ function edgeTitle(rule) {
 
         <svg class="edges" :width="size.w" :height="size.h">
           <defs>
-            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-              <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
+            <marker
+              v-for="m in [{ id: 'arrow', color: 'var(--primary)' }, { id: 'arrow-hot', color: 'var(--primary-hover)' }]"
+              :id="m.id"
+              :key="m.id"
+              viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"
+            >
+              <path d="M0,0 L10,5 L0,10 z" :style="{ fill: m.color }" />
             </marker>
           </defs>
           <path v-for="l in sameLinks" :key="'same' + l.id" class="same" :d="l.path" />
@@ -230,8 +235,9 @@ function edgeTitle(rule) {
             <path
               class="line"
               :d="e.path"
-              marker-end="url(#arrow)"
-              :marker-start="e.rule.direction === 'two_way' ? 'url(#arrow)' : undefined"
+              
+              :marker-end="`url(#${hovered === e.rule.id ? 'arrow-hot' : 'arrow'})`"
+              :marker-start="e.rule.direction === 'two_way' ? `url(#${hovered === e.rule.id ? 'arrow-hot' : 'arrow'})` : undefined"
             />
           </g>
         </svg>
