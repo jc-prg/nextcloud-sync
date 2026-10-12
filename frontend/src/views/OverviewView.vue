@@ -10,6 +10,7 @@ const accounts = ref([])
 const loading = ref(true)
 const wrap = ref(null)
 const edges = ref([])
+const sameLinks = ref([])
 const size = ref({ w: 0, h: 0 })
 const hovered = ref(null)
 
@@ -33,7 +34,8 @@ onBeforeUnmount(() => ro?.disconnect())
 
 const segments = (p) => (p || '').split('/').filter(Boolean)
 const normPath = (p) => '/' + segments(p).join('/')
-const nodeKey = (accId, p) => `${accId}:${normPath(p)}`
+// side is 'src' (left column) or 'dst' (right column)
+const nodeKey = (side, accId, p) => `${side}:${accId}:${normPath(p)}`
 
 const accountIds = computed(() => new Set(accounts.value.map((a) => a.id)))
 
@@ -44,37 +46,50 @@ const drawable = computed(() =>
   ),
 )
 
-// Per account: flat, depth-first list of folders used by rules (plus their ancestors)
-const cards = computed(() => {
-  const trees = new Map(accounts.value.map((a) => [a.id, { endpoint: false, children: new Map() }]))
+// Build one card per account and side, listing the folders used on that side (plus ancestors)
+function buildCards(side) {
+  const idKey = side === 'src' ? 'source_account_id' : 'dest_account_id'
+  const pathKey = side === 'src' ? 'source_path' : 'dest_path'
+  const trees = new Map()
 
-  function add(accId, path) {
-    let node = trees.get(accId)
-    for (const seg of segments(path)) {
+  for (const r of drawable.value) {
+    if (!trees.has(r[idKey])) trees.set(r[idKey], { endpoint: false, children: new Map() })
+    let node = trees.get(r[idKey])
+    for (const seg of segments(r[pathKey])) {
       if (!node.children.has(seg)) node.children.set(seg, { endpoint: false, children: new Map() })
       node = node.children.get(seg)
     }
     node.endpoint = true
   }
-  for (const r of drawable.value) {
-    add(r.source_account_id, r.source_path)
-    add(r.dest_account_id, r.dest_path)
-  }
 
-  return accounts.value.map((acc) => {
-    const root = trees.get(acc.id)
-    const rows = []
-    if (root.endpoint) rows.push({ key: nodeKey(acc.id, '/'), name: '/ (whole account)', depth: 0, endpoint: true })
-    const walk = (node, parts, depth) => {
-      for (const [name, child] of [...node.children].sort((a, b) => a[0].localeCompare(b[0]))) {
-        const p = [...parts, name]
-        rows.push({ key: nodeKey(acc.id, p.join('/')), name, depth, endpoint: child.endpoint })
-        walk(child, p, depth + 1)
+  return accounts.value
+    .filter((acc) => trees.has(acc.id))
+    .map((acc) => {
+      const root = trees.get(acc.id)
+      const rows = []
+      if (root.endpoint) rows.push({ key: nodeKey(side, acc.id, '/'), name: '/ (whole account)', depth: 0, endpoint: true })
+      const walk = (node, parts, depth) => {
+        for (const [name, child] of [...node.children].sort((a, b) => a[0].localeCompare(b[0]))) {
+          const p = [...parts, name]
+          rows.push({ key: nodeKey(side, acc.id, p.join('/')), name, depth, endpoint: child.endpoint })
+          walk(child, p, depth + 1)
+        }
       }
-    }
-    walk(root, [], root.endpoint ? 1 : 0)
-    return { acc, rows }
-  })
+      walk(root, [], root.endpoint ? 1 : 0)
+      return { acc, rows, headKey: `${side}:${acc.id}` }
+    })
+}
+
+const sourceCards = computed(() => buildCards('src'))
+const destCards = computed(() => buildCards('dst'))
+const unusedAccounts = computed(() => {
+  const used = new Set([...sourceCards.value, ...destCards.value].map((c) => c.acc.id))
+  return accounts.value.filter((a) => !used.has(a.id))
+})
+// Accounts that appear in both columns get a red dotted link between their two cards
+const bothSides = computed(() => {
+  const dst = new Set(destCards.value.map((c) => c.acc.id))
+  return sourceCards.value.filter((c) => dst.has(c.acc.id)).map((c) => c.acc.id)
 })
 
 function layoutEdges() {
@@ -93,47 +108,41 @@ function layoutEdges() {
     })
   })
 
-  // Spread anchors when several edges attach to the same side of a row
+  // Spread anchors when several edges attach to the same row
   const used = new Map()
-  const slot = (key, side) => {
-    const k = `${key}|${side}`
-    const n = used.get(k) ?? 0
-    used.set(k, n + 1)
+  const slot = (key) => {
+    const n = used.get(key) ?? 0
+    used.set(key, n + 1)
     return (n % 2 ? 1 : -1) * Math.ceil(n / 2) * 4
   }
 
   const out = []
   for (const rule of drawable.value) {
-    const sKey = nodeKey(rule.source_account_id, rule.source_path)
-    const dKey = nodeKey(rule.dest_account_id, rule.dest_path)
-    const s = rects.get(sKey)
-    const d = rects.get(dKey)
+    const s = rects.get(nodeKey('src', rule.source_account_id, rule.source_path))
+    const d = rects.get(nodeKey('dst', rule.dest_account_id, rule.dest_path))
     if (!s || !d) continue
-
-    let sx, dx, sSide, dSide
-    if (s.right <= d.left) { sx = s.right; dx = d.left; sSide = 'r'; dSide = 'l' }
-    else if (d.right <= s.left) { sx = s.left; dx = d.right; sSide = 'l'; dSide = 'r' }
-    else { sx = s.right; dx = d.right; sSide = 'r'; dSide = 'r' }
-
-    const sy = s.cy + slot(sKey, sSide)
-    const dy = d.cy + slot(dKey, dSide)
-    let path
-    if (sSide === dSide) {
-      // Same column: loop out to the right of the cards
-      const off = 50 + (out.length % 4) * 14
-      const x = Math.max(sx, dx) + off
-      path = `M${sx},${sy} C${x},${sy} ${x},${dy} ${dx},${dy}`
-    } else {
-      const mid = Math.max(40, Math.abs(dx - sx) / 2)
-      const dir = sSide === 'r' ? 1 : -1
-      path = `M${sx},${sy} C${sx + dir * mid},${sy} ${dx - dir * mid},${dy} ${dx},${dy}`
-    }
-    out.push({ rule, path })
+    const sy = s.cy + slot('s' + rule.source_account_id + rule.source_path)
+    const dy = d.cy + slot('d' + rule.dest_account_id + rule.dest_path)
+    const mid = Math.max(40, (d.left - s.right) / 2)
+    out.push({
+      rule,
+      path: `M${s.right},${sy} C${s.right + mid},${sy} ${d.left - mid},${dy} ${d.left},${dy}`,
+    })
   }
   edges.value = out
+
+  const links = []
+  for (const id of bothSides.value) {
+    const s = rects.get(`src:${id}`)
+    const d = rects.get(`dst:${id}`)
+    if (!s || !d) continue
+    const mid = Math.max(40, (d.left - s.right) / 2)
+    links.push({ id, path: `M${s.right},${s.cy} C${s.right + mid},${s.cy} ${d.left - mid},${d.cy} ${d.left},${d.cy}` })
+  }
+  sameLinks.value = links
 }
 
-watch(cards, async () => {
+watch([sourceCards, destCards], async () => {
   await nextTick()
   layoutEdges()
 })
@@ -176,24 +185,29 @@ function edgeTitle(rule) {
 
     <div v-else class="graph-scroll">
       <div ref="wrap" class="graph">
-        <div v-for="c in cards" :key="c.acc.id" class="node card">
-          <button class="node-head" title="Open account" @click="openAccount(c.acc)">
-            <strong>{{ c.acc.label }}</strong>
-            <span class="mono host">{{ host(c.acc.webdav_url) }}</span>
-          </button>
-          <ul v-if="c.rows.length" class="folders">
-            <li
-              v-for="row in c.rows"
-              :key="row.key"
-              :data-node="row.key"
-              :class="{ endpoint: row.endpoint }"
-              :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
-            >
-              <span class="ico">▸</span>{{ row.name }}
-            </li>
-          </ul>
-          <div v-else class="none">No rules use this account</div>
+        <div v-for="(cards, side) in { src: sourceCards, dst: destCards }" :key="side" class="col">
+          <h2 class="col-title">{{ side === 'src' ? 'Sources' : 'Destinations' }}</h2>
+          <div v-for="c in cards" :key="c.headKey" class="node card">
+            <button class="node-head" :data-node="c.headKey" title="Open account" @click="openAccount(c.acc)">
+              <strong>{{ c.acc.label }}</strong>
+              <span class="mono host">{{ host(c.acc.webdav_url) }}</span>
+            </button>
+            <ul class="folders">
+              <li
+                v-for="row in c.rows"
+                :key="row.key"
+                :data-node="row.key"
+                :class="{ endpoint: row.endpoint }"
+                :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
+              >
+                <span class="ico">▸</span>{{ row.name }}
+              </li>
+            </ul>
+          </div>
         </div>
+        <p v-if="unusedAccounts.length" class="unused">
+          Not used by any rule: {{ unusedAccounts.map((a) => a.label).join(', ') }}
+        </p>
 
         <svg class="edges" :width="size.w" :height="size.h">
           <defs>
@@ -201,6 +215,7 @@ function edgeTitle(rule) {
               <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
             </marker>
           </defs>
+          <path v-for="l in sameLinks" :key="'same' + l.id" class="same" :d="l.path" />
           <g
             v-for="e in edges"
             :key="e.rule.id"
@@ -229,13 +244,17 @@ function edgeTitle(rule) {
 .graph-scroll { overflow-x: auto; }
 .graph {
   position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 40px 140px;
-  padding: 8px 80px 8px 8px;
+  display: grid;
+  grid-template-columns: 260px 260px;
+  justify-content: start;
+  align-items: start;
+  column-gap: 160px;
+  padding: 8px;
 }
-.node { width: 260px; flex: none; overflow: hidden; }
+.col { display: flex; flex-direction: column; gap: 24px; }
+.col-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0; }
+.unused { grid-column: 1 / -1; margin: 24px 0 0; font-size: 13px; color: var(--text-muted); }
+.node { overflow: hidden; }
 .node-head {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   width: 100%; padding: 12px 14px;
@@ -254,6 +273,7 @@ function edgeTitle(rule) {
 .none { padding: 12px 14px; font-size: 13px; color: var(--text-muted); }
 
 .edges { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+.same { fill: none; stroke: var(--error); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; }
 .edge { cursor: pointer; color: var(--primary); }
 .edge .hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
 .edge .line { fill: none; stroke: currentColor; stroke-width: 2; }
@@ -262,7 +282,6 @@ function edgeTitle(rule) {
 .edge.hot { color: var(--primary-hover); }
 
 @media (max-width: 640px) {
-  .graph { gap: 32px 60px; padding-right: 60px; }
-  .node { width: 100%; }
+  .graph { grid-template-columns: 1fr 1fr; column-gap: 56px; }
 }
 </style>
