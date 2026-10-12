@@ -119,14 +119,17 @@ function applyCronPreset(val) {
 async function save() {
   error.value = ''
   syncSizes()
-  if (!form.value.source_account_id || !form.value.source_path) {
-    error.value = 'Please select a source folder.'
+  if (!form.value.source_account_id) {
+    error.value = 'Please select a source account.'
     return
   }
-  if (!form.value.dest_account_id || !form.value.dest_path) {
-    error.value = 'Please select a destination folder.'
+  if (!form.value.dest_account_id) {
+    error.value = 'Please select a destination account.'
     return
   }
+  // No folder selected → sync the whole account (WebDAV root)
+  form.value.source_path ||= '/'
+  form.value.dest_path ||= '/'
   saving.value = true
   try {
     if (isEdit.value) {
@@ -184,7 +187,7 @@ async function save() {
         <div class="card-body">
           <div class="form-group" style="margin-bottom:16px;">
             <label>Account</label>
-            <select v-model="form.source_account_id" class="input" @change="form.source_path = null" required>
+            <select v-model="form.source_account_id" class="input" @change="form.source_path = '/'; form.exclude_subfolders = []" required>
               <option :value="null" disabled>Select an account…</option>
               <option v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.label }}</option>
             </select>
@@ -195,6 +198,7 @@ async function save() {
             <template v-if="sourceAccount">
               <div v-if="form.source_path" class="selected-path">
                 <span class="mono">{{ form.source_path }}</span>
+                <small v-if="form.source_path === '/'">(entire account)</small>
                 <button type="button" class="btn btn-ghost btn-sm" @click="form.source_path = null; form.exclude_subfolders = []">Change</button>
               </div>
               <FolderTree
@@ -202,7 +206,7 @@ async function save() {
                 :account-id="form.source_account_id"
                 v-model="form.source_path"
               />
-              <small v-if="!form.source_path">Click a folder to select it as source.</small>
+              <small v-if="!form.source_path">Click a folder to select it as source. Leave empty to sync the entire account.</small>
             </template>
             <p v-else class="placeholder-hint">Select an account first.</p>
           </div>
@@ -227,7 +231,7 @@ async function save() {
         <div class="card-body">
           <div class="form-group" style="margin-bottom:16px;">
             <label>Account</label>
-            <select v-model="form.dest_account_id" class="input" @change="form.dest_path = null" required>
+            <select v-model="form.dest_account_id" class="input" @change="form.dest_path = '/'" required>
               <option :value="null" disabled>Select an account…</option>
               <option v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.label }}</option>
             </select>
@@ -238,6 +242,7 @@ async function save() {
             <template v-if="destAccount">
               <div v-if="form.dest_path" class="selected-path">
                 <span class="mono">{{ form.dest_path }}</span>
+                <small v-if="form.dest_path === '/'">(entire account)</small>
                 <button type="button" class="btn btn-ghost btn-sm" @click="form.dest_path = null">Change</button>
               </div>
               <FolderTree
@@ -245,7 +250,7 @@ async function save() {
                 :account-id="form.dest_account_id"
                 v-model="form.dest_path"
               />
-              <small v-if="!form.dest_path">Click a folder to select it as destination.</small>
+              <small v-if="!form.dest_path">Click a folder to select it as destination. Leave empty to use the account root.</small>
             </template>
             <p v-else class="placeholder-hint">Select an account first.</p>
           </div>
