@@ -1,5 +1,6 @@
 """Async WebDAV client built on httpx."""
 
+import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
@@ -9,6 +10,11 @@ from urllib.parse import quote, unquote, urlparse
 import httpx
 
 _DAV = "{DAV:}"
+
+# Files larger than this are uploaded in pieces via Nextcloud's chunked upload API,
+# so servers/proxies with a per-request body limit don't reject them (HTTP 413).
+CHUNKED_UPLOAD_THRESHOLD = 8 * 1024 * 1024
+UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 
 
 @dataclass
@@ -93,6 +99,9 @@ class WebDAVClient:
                 # Read the error body before raising so _exc_detail can access .text
                 await get_resp.aread()
             get_resp.raise_for_status()
+            if size > CHUNKED_UPLOAD_THRESHOLD and dst._uploads_url is not None:
+                await dst._put_chunked(dst_url, get_resp.aiter_bytes(chunk_size=chunk_size), size)
+                return
             put_resp = await dst._client.put(
                 dst_url,
                 content=get_resp.aiter_bytes(chunk_size=chunk_size),
@@ -102,6 +111,59 @@ class WebDAVClient:
                 },
             )
             put_resp.raise_for_status()
+
+    @property
+    def _uploads_url(self) -> str | None:
+        """Nextcloud chunked-upload endpoint, or None if base_url isn't a Nextcloud files URL."""
+        marker = "/remote.php/dav/files/"
+        idx = self.base_url.find(marker)
+        if idx < 0:
+            return None
+        user = self.base_url[idx + len(marker):].split("/", 1)[0]
+        return f"{self.base_url[:idx]}/remote.php/dav/uploads/{user}"
+
+    async def _put_chunked(self, dst_url: str, stream, size: int) -> None:
+        """Upload *stream* to *dst_url* using Nextcloud's chunked upload protocol."""
+        upload_dir = f"{self._uploads_url}/next-sync-{uuid.uuid4().hex}"
+        resp = await self._client.request("MKCOL", upload_dir, headers={"Destination": dst_url})
+        resp.raise_for_status()
+        try:
+            buf = bytearray()
+            index = 0
+
+            async def flush() -> None:
+                nonlocal index
+                index += 1
+                r = await self._client.put(
+                    f"{upload_dir}/{index:05d}",
+                    content=bytes(buf),
+                    headers={"Content-Type": "application/octet-stream", "OC-Total-Length": str(size)},
+                )
+                r.raise_for_status()
+                buf.clear()
+
+            async for piece in stream:
+                buf.extend(piece)
+                while len(buf) >= UPLOAD_CHUNK_SIZE:
+                    rest = bytes(buf[UPLOAD_CHUNK_SIZE:])
+                    del buf[UPLOAD_CHUNK_SIZE:]
+                    await flush()
+                    buf.extend(rest)
+            if buf or index == 0:
+                await flush()
+
+            r = await self._client.request(
+                "MOVE",
+                f"{upload_dir}/.file",
+                headers={"Destination": dst_url, "OC-Total-Length": str(size), "Overwrite": "T"},
+            )
+            r.raise_for_status()
+        except BaseException:
+            try:
+                await self._client.delete(upload_dir)
+            except Exception:
+                pass
+            raise
 
     async def get_bytes(self, path: str) -> bytes:
         resp = await self._client.get(self.base_url + _encode_path(path))
