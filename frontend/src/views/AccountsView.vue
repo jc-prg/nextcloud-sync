@@ -1,7 +1,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { accountsApi } from '@/api/accounts'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+
+const route = useRoute()
+const router = useRouter()
 
 const accounts = ref([])
 const loading = ref(true)
@@ -17,7 +21,16 @@ function emptyForm() {
   return { label: '', webdav_url: '', username: '', password: '', storage_limit_gb: '' }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // Deep link from the overview graph: /accounts?edit=<id>
+  const editId = Number(route.query.edit)
+  if (editId) {
+    const acc = accounts.value.find((a) => a.id === editId)
+    if (acc) openEdit(acc)
+    router.replace({ path: '/accounts' })
+  }
+})
 
 async function load() {
   loading.value = true

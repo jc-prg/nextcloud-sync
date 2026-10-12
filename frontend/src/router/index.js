@@ -14,6 +14,7 @@ const routes = [
       { path: 'rules', component: () => import('@/views/RulesView.vue') },
       { path: 'rules/new', component: () => import('@/views/RuleEditorView.vue') },
       { path: 'rules/:id/edit', component: () => import('@/views/RuleEditorView.vue') },
+      { path: 'overview', component: () => import('@/views/OverviewView.vue') },
       { path: 'history', component: () => import('@/views/HistoryView.vue') },
     ],
   },
