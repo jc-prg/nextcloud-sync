@@ -4,6 +4,7 @@ import { rulesApi } from '@/api/rules'
 import { jobsApi } from '@/api/jobs'
 import { accountsApi } from '@/api/accounts'
 import StatusBadge from '@/components/StatusBadge.vue'
+import OverviewGraph from '@/components/OverviewGraph.vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -172,6 +173,14 @@ function usedPercent(account) {
           </div>
         </div>
       </div>
+
+      <!-- Overview graph -->
+      <template v-if="accounts.length > 0">
+        <div class="section-header">
+          <h2>Overview</h2>
+        </div>
+        <OverviewGraph :accounts="accounts" :rules="rules" style="margin-bottom:40px;" />
+      </template>
 
       <!-- Sync Rules -->
       <div class="section-header">

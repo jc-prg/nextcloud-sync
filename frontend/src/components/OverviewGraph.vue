@@ -1,13 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { rulesApi } from '@/api/rules'
-import { accountsApi } from '@/api/accounts'
 
 const router = useRouter()
-const rules = ref([])
-const accounts = ref([])
-const loading = ref(true)
+const props = defineProps({
+  rules: { type: Array, required: true },
+  accounts: { type: Array, required: true },
+})
+const rules = computed(() => props.rules)
+const accounts = computed(() => props.accounts)
 const wrap = ref(null)
 const edges = ref([])
 const sameLinks = ref([])
@@ -17,11 +18,6 @@ const hovered = ref(null)
 let ro = null
 
 onMounted(async () => {
-  try {
-    ;[rules.value, accounts.value] = await Promise.all([rulesApi.list(), accountsApi.list()])
-  } finally {
-    loading.value = false
-  }
   await nextTick()
   if (wrap.value) {
     ro = new ResizeObserver(layoutEdges)
@@ -166,24 +162,7 @@ function edgeTitle(rule) {
 </script>
 
 <template>
-  <div>
-    <div class="page-header">
-      <div>
-        <h1>Overview</h1>
-        <p>Accounts, the folders used by sync rules, and the direction of each rule.</p>
-      </div>
-    </div>
-
-    <div v-if="loading" class="card"><div class="empty-state"><span class="spinner spinner-dark" style="width:24px;height:24px;" /></div></div>
-    <div v-else-if="accounts.length === 0" class="card">
-      <div class="empty-state">
-        <div class="icon">◎</div>
-        <h3>Nothing to show yet</h3>
-        <p>Add accounts and sync rules to see how they connect.</p>
-      </div>
-    </div>
-
-    <div v-else class="graph-scroll">
+    <div class="graph-scroll">
       <div ref="wrap" class="graph">
         <div v-for="(cards, side) in { src: sourceCards, dst: destCards }" :key="side" class="col">
           <h2 class="col-title">{{ side === 'src' ? 'Sources' : 'Destinations' }}</h2>
@@ -243,7 +222,6 @@ function edgeTitle(rule) {
         </svg>
       </div>
     </div>
-  </div>
 </template>
 
 <style scoped>

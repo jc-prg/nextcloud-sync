@@ -34,7 +34,6 @@ const nav = [
   { path: '/dashboard', label: 'Dashboard', icon: '◈' },
   { path: '/accounts', label: 'Accounts', icon: '⬡' },
   { path: '/rules', label: 'Sync Rules', icon: '⇄' },
-  { path: '/overview', label: 'Overview', icon: '◎' },
   { path: '/history', label: 'History', icon: '◷' },
 ]
 </script>
