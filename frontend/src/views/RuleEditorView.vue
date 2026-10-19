@@ -35,6 +35,7 @@ const form = ref({
   schedule_cron: '0 3 * * *',
   delete_orphans: false,
   exclude_patterns: [],
+  exclude_folder_names: [],
   min_file_size: null,
   max_file_size: null,
 })
@@ -72,6 +73,19 @@ function addPattern() {
 }
 function removePattern(i) {
   form.value.exclude_patterns.splice(i, 1)
+}
+
+// Folder names excluded at any depth
+const newFolderName = ref('')
+function addFolderName() {
+  const n = newFolderName.value.trim().replace(/^\/+|\/+$/g, '')
+  if (n && !form.value.exclude_folder_names.includes(n)) {
+    form.value.exclude_folder_names.push(n)
+  }
+  newFolderName.value = ''
+}
+function removeFolderName(i) {
+  form.value.exclude_folder_names.splice(i, 1)
 }
 
 onMounted(async () => {
@@ -340,6 +354,29 @@ async function save() {
                   <option>KB</option><option>MB</option><option>GB</option>
                 </select>
               </div>
+            </div>
+          </div>
+
+          <!-- Folder names -->
+          <div class="form-group" style="margin-bottom:20px;">
+            <label>Exclude folders by name</label>
+            <small>Skips every folder with this exact name, at any depth, including its contents. Examples: <span class="mono">node_modules</span> &nbsp; <span class="mono">__pycache__</span> &nbsp; <span class="mono">.venv</span></small>
+
+            <div class="pattern-list" v-if="form.exclude_folder_names.length">
+              <div v-for="(n, i) in form.exclude_folder_names" :key="n" class="pattern-tag">
+                <span class="mono">{{ n }}</span>
+                <button type="button" class="remove-btn" @click="removeFolderName(i)" title="Remove">✕</button>
+              </div>
+            </div>
+
+            <div class="pattern-add">
+              <input
+                v-model="newFolderName"
+                class="input mono"
+                placeholder="e.g. node_modules"
+                @keydown.enter.prevent="addFolderName"
+              />
+              <button type="button" class="btn btn-secondary btn-sm" @click="addFolderName">Add</button>
             </div>
           </div>
 

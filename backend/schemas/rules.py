@@ -19,6 +19,7 @@ class SyncRuleCreate(BaseModel):
     exclude_hidden: bool = True
     exclude_patterns: list[str] = []
     exclude_subfolders: list[str] = []
+    exclude_folder_names: list[str] = []
     known_subfolders: list[str] = []
     min_file_size: int | None = None  # bytes
     max_file_size: int | None = None  # bytes
@@ -37,6 +38,7 @@ class SyncRuleUpdate(BaseModel):
     exclude_hidden: bool | None = None
     exclude_patterns: list[str] | None = None
     exclude_subfolders: list[str] | None = None
+    exclude_folder_names: list[str] | None = None
     known_subfolders: list[str] | None = None
     min_file_size: int | None = None
     max_file_size: int | None = None
@@ -56,13 +58,14 @@ class SyncRuleRead(BaseModel):
     exclude_hidden: bool
     exclude_patterns: list[str] = []
     exclude_subfolders: list[str] = []
+    exclude_folder_names: list[str] = []
     known_subfolders: list[str] = []
     min_file_size: int | None
     max_file_size: int | None
     last_run_at: datetime | None
     next_run_at: datetime | None
 
-    @field_validator("exclude_patterns", "exclude_subfolders", "known_subfolders", mode="before")
+    @field_validator("exclude_patterns", "exclude_subfolders", "exclude_folder_names", "known_subfolders", mode="before")
     @classmethod
     def deserialize_json_list(cls, v):
         if isinstance(v, str):

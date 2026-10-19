@@ -31,6 +31,7 @@ async def create_rule(
     data = body.model_dump()
     data["exclude_patterns"] = json.dumps(data["exclude_patterns"]) if data.get("exclude_patterns") else None
     data["exclude_subfolders"] = json.dumps(data["exclude_subfolders"]) if data.get("exclude_subfolders") else None
+    data["exclude_folder_names"] = json.dumps(data["exclude_folder_names"]) if data.get("exclude_folder_names") else None
     data["known_subfolders"] = json.dumps(data["known_subfolders"]) if data.get("known_subfolders") else None
     rule = SyncRule(**data)
     db.add(rule)
@@ -59,7 +60,7 @@ async def update_rule(
 ) -> SyncRule:
     rule = await _get_or_404(db, rule_id)
     for field, value in body.model_dump(exclude_none=True).items():
-        if field in ("exclude_patterns", "exclude_subfolders", "known_subfolders"):
+        if field in ("exclude_patterns", "exclude_subfolders", "exclude_folder_names", "known_subfolders"):
             value = json.dumps(value) if value else None
         setattr(rule, field, value)
     await db.commit()

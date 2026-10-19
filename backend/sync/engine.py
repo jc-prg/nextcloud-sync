@@ -102,6 +102,8 @@ async def _execute_sync(
         has_error = False
         files_excluded = 0
         exclusion = _Exclusion(rule)
+        # Destination dirs that could not be created → number of entries skipped below them
+        failed_dirs: dict[str, int] = {}
 
         # --- Sync source → destination ---
         for rel, src_entry in src_map.items():
@@ -114,10 +116,22 @@ async def _execute_sync(
                     files_excluded += 1
                 continue
 
+            # Skip entries inside folders excluded by name (e.g. node_modules) at any depth
+            if exclusion.is_folder_name_excluded(rel, src_entry.is_dir):
+                if not src_entry.is_dir:
+                    files_excluded += 1
+                continue
+
             # Skip hidden files/directories (any path component starting with '.')
             if exclusion.is_hidden_path(rel):
                 if not src_entry.is_dir:
                     files_excluded += 1
+                continue
+
+            # Skip everything below a dir that could not be created — it would only fail too
+            failed_parent = _failed_ancestor(rel, failed_dirs)
+            if failed_parent is not None:
+                failed_dirs[failed_parent] += 1
                 continue
 
             if src_entry.is_dir:
@@ -127,6 +141,7 @@ async def _execute_sync(
                         await _log(db, job.id, LogLevel.info, f"Created dir: {dst_path}", dst_path)
                     except Exception as exc:
                         await _log(db, job.id, LogLevel.error, f"Failed to create dir {dst_path}: {_exc_detail(exc)}", dst_path)
+                        failed_dirs[rel] = 0
                         has_error = True
                 continue
 
@@ -157,14 +172,26 @@ async def _execute_sync(
                 await _log(db, job.id, LogLevel.error, f"Failed to copy {rel}: {_exc_detail(exc)}", rel)
                 has_error = True
 
+        for rel, skipped in failed_dirs.items():
+            if skipped:
+                await _log(
+                    db, job.id, LogLevel.warning,
+                    f"Skipped {skipped} entries below {rel} because the folder could not be created", rel,
+                )
+
         # --- Delete orphans on destination ---
         if rule.delete_orphans:
             for rel in list(dst_map):
-                # Children of excluded subfolders: skip — deleting the root dir handles them recursively
-                if exclusion.is_subfolder_excluded(rel) and not exclusion.is_excluded_subfolder_root(rel):
+                is_excluded_root = (
+                    exclusion.is_excluded_subfolder_root(rel)
+                    or exclusion.is_excluded_folder_name_root(rel, dst_map[rel].is_dir)
+                )
+                # Children of excluded folders: skip — deleting the root dir handles them recursively
+                is_excluded = exclusion.is_subfolder_excluded(rel) or exclusion.is_folder_name_excluded(rel, dst_map[rel].is_dir)
+                if is_excluded and not is_excluded_root:
                     continue
-                # Delete if: true orphan (not on source) OR root of an excluded subfolder
-                if rel not in src_map or exclusion.is_excluded_subfolder_root(rel):
+                # Delete if: true orphan (not on source) OR root of an excluded folder
+                if rel not in src_map or is_excluded_root:
                     dst_path = rule.dest_path.rstrip("/") + "/" + rel.lstrip("/")
                     try:
                         await dst.delete(dst_path)
@@ -221,6 +248,8 @@ class _Exclusion:
                 s = s[len(src_prefix):]
             rel_subfolders.append("/" + s.strip("/"))
         self._excluded_subfolders = rel_subfolders
+        raw_fn = rule.exclude_folder_names
+        self._excluded_folder_names = {n.strip().strip("/") for n in (json.loads(raw_fn) if raw_fn else []) if n.strip()}
 
     def is_subfolder_excluded(self, rel: str) -> bool:
         """Return True if rel path is inside (or is) an excluded subfolder."""
@@ -232,6 +261,26 @@ class _Exclusion:
     def is_excluded_subfolder_root(self, rel: str) -> bool:
         """Return True if rel is the root of an excluded subfolder (not a child)."""
         return rel in self._excluded_subfolders
+
+    def _folder_parts(self, rel: str, is_dir: bool) -> list[str]:
+        parts = [p for p in rel.strip("/").split("/") if p]
+        return parts if is_dir else parts[:-1]
+
+    def is_folder_name_excluded(self, rel: str, is_dir: bool) -> bool:
+        """Return True if rel is, or lies inside, a folder whose name is excluded."""
+        if not self._excluded_folder_names:
+            return False
+        return any(p in self._excluded_folder_names for p in self._folder_parts(rel, is_dir))
+
+    def is_excluded_folder_name_root(self, rel: str, is_dir: bool) -> bool:
+        """Return True if rel is the outermost folder excluded by name (not a child of one)."""
+        if not is_dir or not self._excluded_folder_names:
+            return False
+        parts = self._folder_parts(rel, is_dir)
+        return (
+            parts[-1] in self._excluded_folder_names
+            and not any(p in self._excluded_folder_names for p in parts[:-1])
+        )
 
     def is_hidden_path(self, rel: str) -> bool:
         """Return True if any component of the relative path matches hidden/temp patterns."""
@@ -327,6 +376,14 @@ def _body_excerpt(resp: httpx.Response, limit: int = 300) -> str:
     if isinstance(exc, httpx.ConnectError):
         return f"Connection error: {exc}"
     return str(exc)
+
+
+def _failed_ancestor(rel: str, failed_dirs: dict[str, int]) -> str | None:
+    """Return the failed dir that rel lies below, if any."""
+    for d in failed_dirs:
+        if rel.startswith(d + "/"):
+            return d
+    return None
 
 
 def _fmt_bytes(n: int) -> str:
