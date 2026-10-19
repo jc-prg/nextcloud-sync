@@ -79,9 +79,13 @@ def create_app() -> FastAPI:
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa_fallback(full_path: str):
             file = dist / full_path
-            if file.is_file():
+            if file.is_file() and file.name != "index.html":
                 return FileResponse(str(file))
-            return FileResponse(str(dist / "index.html"))
+            # index.html references hashed asset names that change on every build,
+            # so the browser must revalidate it instead of using a stale copy
+            return FileResponse(
+                str(dist / "index.html"), headers={"Cache-Control": "no-cache"}
+            )
 
     return app
 

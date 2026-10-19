@@ -1,5 +1,7 @@
 import axios from 'axios'
 import { markOffline, markOnline } from '@/stores/connectivity'
+import { useAuthStore } from '@/stores/auth'
+import router from '@/router'
 
 const api = axios.create({ baseURL: '/api' })
 
@@ -19,8 +21,14 @@ api.interceptors.response.use(
       markOnline()
       // Don't redirect on 401 from auth endpoints — those handle errors themselves
       if (err.response.status === 401 && !err.config?.url?.includes('/auth/')) {
-        localStorage.removeItem('token')
-        window.location.href = '/login'
+        // Ignore 401s from requests sent with an older token: a fresh login
+        // may already have replaced it, and must not be thrown away
+        const sentToken = err.config?.headers?.Authorization?.replace('Bearer ', '') || ''
+        const auth = useAuthStore()
+        if (sentToken === auth.token) {
+          auth.logout()
+          if (router.currentRoute.value.path !== '/login') router.push('/login')
+        }
       }
     }
     return Promise.reject(err)

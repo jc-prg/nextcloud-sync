@@ -12,7 +12,7 @@ const loading = ref(false)
 
 onMounted(async () => {
   // Already logged in
-  if (auth.token) { router.push('/dashboard'); return }
+  if (auth.isAuthenticated()) { router.push('/dashboard'); return }
   // App not configured yet
   const configured = await auth.checkSetup()
   if (!configured) router.push('/setup')
