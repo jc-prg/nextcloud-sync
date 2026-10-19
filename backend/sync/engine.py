@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 import httpx
@@ -255,20 +256,72 @@ class _Exclusion:
         return False, ""
 
 
+_SABRE_NS = "{http://sabredav.org/ns}"
+
+
 def _exc_detail(exc: Exception) -> str:
-    """Return a descriptive error string, including HTTP status and response body for HTTP errors."""
+    """Return a descriptive error string for the sync log.
+
+    For HTTP errors this includes the request method and URL, any redirects that
+    were followed, identifying response headers and a readable excerpt of the
+    body, so it is visible *which* component (DAV, web frontend, proxy) answered.
+    """
     if isinstance(exc, httpx.HTTPStatusError):
-        try:
-            body = exc.response.text.strip()
-        except Exception:
-            body = ""
-        # Truncate long bodies (e.g. HTML error pages)
-        if len(body) > 200:
-            body = body[:200] + "…"
-        detail = f"HTTP {exc.response.status_code}"
+        resp = exc.response
+        req = resp.request
+        detail = f"HTTP {resp.status_code} {resp.reason_phrase} for {req.method} {req.url}"
+        if resp.history:
+            hops = " → ".join(
+                f"{r.status_code} {r.request.method} {r.request.url}" for r in resp.history
+            )
+            detail += f" (redirected: {hops})"
+        headers = [
+            f"{name}={resp.headers[name]}"
+            for name in ("content-type", "server", "x-request-id", "x-powered-by")
+            if name in resp.headers
+        ]
+        if headers:
+            detail += f" [{', '.join(headers)}]"
+        body = _body_excerpt(resp)
         if body:
             detail += f" — {body}"
         return detail
+    if isinstance(exc, httpx.TimeoutException):
+        return f"Timeout ({type(exc).__name__})"
+    if isinstance(exc, httpx.ConnectError):
+        return f"Connection error: {exc}"
+    return str(exc)
+
+
+def _body_excerpt(resp: httpx.Response, limit: int = 300) -> str:
+    """Extract the meaningful part of an error body: Sabre exception + message
+    for DAV errors, the page title + visible text for HTML pages."""
+    try:
+        body = resp.text.strip()
+    except Exception:
+        return ""
+    if not body:
+        return ""
+    if "sabredav.org/ns" in body:
+        try:
+            root = ET.fromstring(body)
+            exc_el = root.find(f"{_SABRE_NS}exception")
+            msg_el = root.find(f"{_SABRE_NS}message")
+            parts = [el.text.strip() for el in (exc_el, msg_el) if el is not None and el.text]
+            if parts:
+                return ": ".join(parts)
+        except ET.ParseError:
+            pass
+    if "<html" in body[:500].lower():
+        title = re.search(r"<title[^>]*>(.*?)</title>", body, re.S | re.I)
+        text = re.sub(r"<(script|style)\b.*?</\1>", " ", body, flags=re.S | re.I)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        prefix = f"HTML page '{title.group(1).strip()}': " if title else "HTML page: "
+        body = prefix + text
+    else:
+        body = re.sub(r"\s+", " ", body)
+    return body[:limit] + "…" if len(body) > limit else body
     if isinstance(exc, httpx.TimeoutException):
         return f"Timeout ({type(exc).__name__})"
     if isinstance(exc, httpx.ConnectError):
