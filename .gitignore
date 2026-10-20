@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 dist/
 build/
+.pytest_cache/
 
 # App data
 data/

@@ -16,4 +16,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
   },
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.spec.js'],
+    restoreMocks: true,
+  },
 })

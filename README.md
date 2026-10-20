@@ -110,10 +110,11 @@ next-sync/
 │   ├── auth.py          # JWT creation/validation, password verify
 │   ├── crypto.py        # Fernet encrypt/decrypt for WebDAV passwords
 │   ├── routers/         # FastAPI routers (auth, accounts, rules, browse, jobs)
-│   └── sync/
-│       ├── webdav.py    # Async WebDAV client (PROPFIND / GET / PUT / DELETE)
-│       ├── engine.py    # Sync logic: tree diff, copy, delete orphans
-│       └── scheduler.py # APScheduler wrapper, one cron job per rule
+│   ├── sync/
+│   │   ├── webdav.py    # Async WebDAV client (PROPFIND / GET / PUT / DELETE)
+│   │   ├── engine.py    # Sync logic: tree diff, copy, delete orphans
+│   │   └── scheduler.py # APScheduler wrapper, one cron job per rule
+│   └── tests/           # pytest suite with an in-memory WebDAV server
 ├── frontend/
 │   └── src/
 │       ├── views/       # Login, Setup, Dashboard, Accounts, RuleEditor, History
@@ -124,6 +125,24 @@ next-sync/
 ├── docker-compose.yml   # Production
 └── docker-compose.dev.yml # Development (hot reload)
 ```
+
+## Tests
+
+Both suites run in throwaway containers, so nothing needs to be installed locally:
+
+```bash
+# Backend (pytest): sync engine, WebDAV client, REST API, scheduler
+docker compose -f docker-compose.dev.yml run --rm backend-test
+
+# Frontend (Vitest): auth store, API client, router guard, FolderTree, connectivity
+docker compose -f docker-compose.dev.yml run --rm frontend-test
+```
+
+Arguments after the service name replace the default command, e.g.
+`... run --rm backend-test pytest -k two_way -x`.
+
+The backend tests never touch real servers or your `.env`: WebDAV is simulated
+in memory (`backend/tests/fakedav.py`) and each test gets a fresh SQLite database.
 
 ## API Reference
 

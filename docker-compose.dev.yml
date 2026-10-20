@@ -28,6 +28,29 @@ services:
       - backend
     restart: unless-stopped
 
+  # Test runners — only started explicitly:
+  #   docker compose -f docker-compose.dev.yml run --rm backend-test
+  #   docker compose -f docker-compose.dev.yml run --rm frontend-test
+  backend-test:
+    profiles: [test]
+    image: python:3.12-slim
+    working_dir: /app
+    entrypoint: ["sh", "-c", "pip install -e '.[test]' -q --root-user-action=ignore && exec \"$$@\"", "--"]
+    command: ["pytest"]
+    volumes:
+      - .:/app
+      - pip-cache:/root/.cache/pip
+
+  frontend-test:
+    profiles: [test]
+    image: node:20-alpine
+    working_dir: /app
+    entrypoint: ["sh", "-c", "npm install --no-audit --no-fund && exec \"$$@\"", "--"]
+    command: ["npm", "test"]
+    volumes:
+      - ./frontend:/app
+      - npm-cache:/root/.npm
+
 volumes:
   pip-cache:
   npm-cache:

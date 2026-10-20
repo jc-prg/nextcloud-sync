@@ -26,6 +26,14 @@ docker compose -f docker-compose.dev.yml restart backend
 cd frontend && npm install && npm run dev
 ```
 
+**Run tests** (in throwaway containers, nothing installed locally):
+```bash
+docker compose -f docker-compose.dev.yml run --rm backend-test                      # pytest
+docker compose -f docker-compose.dev.yml run --rm backend-test pytest -k two_way -x # subset
+docker compose -f docker-compose.dev.yml run --rm frontend-test                     # vitest
+```
+Changes to the sync engine, WebDAV client or API should come with tests in `backend/tests/`. `fakedav.py` is an in-memory WebDAV server behind `httpx.MockTransport`, so the real `WebDAVClient` is exercised; use the `dav` fixture to create servers and `factories.py` (`make_account`, `make_rule`, `sync`) to drive `run_sync()` against the real (per-test, temp) SQLite DB. `conftest.py` sets env vars before `backend` is imported, because `settings` and the DB engine are created at import time. Frontend specs live next to the code as `src/**/*.spec.js`.
+
 **Build frontend:**
 ```bash
 cd frontend && npm run build

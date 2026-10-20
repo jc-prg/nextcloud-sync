@@ -20,9 +20,21 @@ dependencies = [
     "python-multipart>=0.0.9",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
 [project.scripts]
 next-sync = "backend.main:cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["backend*"]
+exclude = ["backend.tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
