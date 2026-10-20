@@ -19,6 +19,13 @@ from backend.sync.webdav import DavEntry, WebDAVClient
 
 logger = logging.getLogger(__name__)
 
+# Two-way sync state file, kept in the root of source and destination
+STATE_FILE = ".next-sync"
+STATE_REL = "/" + STATE_FILE
+STATE_VERSION = 1
+# Files changed on both sides are compared byte by byte up to this size — equal content is no conflict
+SAME_CONTENT_MAX_BYTES = 32 * 1024 * 1024
+
 # Maps job_id → running asyncio.Task so abort_job() can cancel it
 _running: dict[int, asyncio.Task] = {}
 
@@ -98,17 +105,53 @@ async def _execute_sync(
         # Build lookup maps: relative-path → DavEntry (relative to sync root)
         src_map = _build_map(src_tree, rule.source_path)
         dst_map = _build_map(dst_tree, rule.dest_path)
+        # The sync state files are bookkeeping, never synced themselves
+        src_map.pop(STATE_REL, None)
+        dst_map.pop(STATE_REL, None)
 
+        two_way = rule.direction == SyncDirection.two_way
         has_error = False
         files_excluded = 0
         exclusion = _Exclusion(rule)
         # Destination dirs that could not be created → number of entries skipped below them
         failed_dirs: dict[str, int] = {}
 
+        # Two-way: the state of the last run tells "new on one side" apart from
+        # "deleted on the other side" for entries that exist on one side only
+        known: dict[str, dict] = {}
+        src_state_doc: dict = {}
+        dst_state_doc: dict = {}
+        src_dirty: set[str] = set()
+        dst_dirty: set[str] = set()
+        if two_way:
+            src_state_doc = await _read_state(db, job.id, src, rule.source_path, "source")
+            dst_state_doc = await _read_state(db, job.id, dst, rule.dest_path, "destination")
+            known = _known_entries(rule, src_state_doc, dst_state_doc)
+            src_dirty = _dirty_paths(src_map, known, "src")
+            dst_dirty = _dirty_paths(dst_map, known, "dst")
+            if not known:
+                await _log(db, job.id, LogLevel.info, "No previous sync state — nothing will be deleted in this run")
+
+        def deleted_elsewhere(rel: str, dirty: set[str]) -> bool:
+            """Two-way: rel was synced last run, is gone on the other side and unchanged on this side."""
+            return two_way and rule.delete_orphans and rel in known and rel not in dirty
+
+        # Source dirs deleted because they were deleted on the destination
+        src_deleted_dirs: list[str] = []
+        # Two-way: entries changed on both sides since the last run — left untouched
+        conflicts: set[str] = set()
+        # Two-way: a dir on one side is a file on the other — nothing below it is synced
+        conflict_dirs: list[str] = []
+
         # --- Sync source → destination ---
-        for rel, src_entry in src_map.items():
+        # Sorted so parents come before their children
+        for rel in sorted(src_map):
+            src_entry = src_map[rel]
             dst_path = rule.dest_path.rstrip("/") + "/" + rel.lstrip("/")
             src_path = rule.source_path.rstrip("/") + "/" + rel.lstrip("/")
+
+            if _under_any(rel, src_deleted_dirs) or _under_any(rel, conflict_dirs):
+                continue
 
             # Skip entries inside excluded subfolders
             if exclusion.is_subfolder_excluded(rel):
@@ -134,6 +177,31 @@ async def _execute_sync(
                 failed_dirs[failed_parent] += 1
                 continue
 
+            # Two-way: deleted on the destination since the last run → delete on the source too
+            if rel not in dst_map and deleted_elsewhere(rel, src_dirty):
+                try:
+                    await src.delete(src_path)
+                    if src_entry.is_dir:
+                        src_deleted_dirs.append(rel)
+                    job.files_deleted += 1
+                    await _log(db, job.id, LogLevel.info, f"Deleted from source: {rel}", rel)
+                except Exception as exc:
+                    await _log(db, job.id, LogLevel.error, f"Failed to delete {rel} from source: {_exc_detail(exc)}", rel)
+                    has_error = True
+                continue
+
+            if two_way and rel in dst_map and dst_map[rel].is_dir != src_entry.is_dir:
+                kinds = ("folder", "file") if src_entry.is_dir else ("file", "folder")
+                await _log(
+                    db, job.id, LogLevel.error,
+                    f"Conflict: {rel} is a {kinds[0]} on the source but a {kinds[1]} on the destination — left unchanged",
+                    rel,
+                )
+                conflicts.add(rel)
+                conflict_dirs.append(rel)
+                has_error = True
+                continue
+
             if src_entry.is_dir:
                 if rel not in dst_map:
                     try:
@@ -153,7 +221,36 @@ async def _execute_sync(
                 continue
 
             # File: copy if missing or changed
-            if rel in dst_map:
+            if rel in dst_map and two_way:
+                dst_entry = dst_map[rel]
+                action = _two_way_action(src_entry, dst_entry, known.get(rel))
+                if action == "conflict" and await _same_content(src, src_path, dst, dst_path, src_entry, dst_entry):
+                    action = "none"
+                if action == "none":
+                    continue
+                if action == "conflict":
+                    await _log(
+                        db, job.id, LogLevel.error,
+                        f"Conflict: {rel} was changed on both source and destination since the last sync — "
+                        "left unchanged; delete the unwanted version to resolve",
+                        rel,
+                    )
+                    conflicts.add(rel)
+                    has_error = True
+                    continue
+                if action == "to_src":
+                    try:
+                        await dst.copy_to(dst_path, src, src_path, dst_entry.size)
+                        job.files_updated += 1
+                        job.bytes_transferred += dst_entry.size
+                        await _log(db, job.id, LogLevel.info, f"Updated (from dest): {rel}", rel)
+                    except Exception as exc:
+                        await _log(db, job.id, LogLevel.error, f"Failed reverse copy {rel}: {_exc_detail(exc)}", rel)
+                        has_error = True
+                    continue
+                verb = "Updated"
+                job.files_updated += 1
+            elif rel in dst_map:
                 if not _is_changed(src_entry, dst_map[rel]):
                     continue
                 verb = "Updated"
@@ -180,8 +277,14 @@ async def _execute_sync(
                 )
 
         # --- Delete orphans on destination ---
+        # Destination entries deleted here (dirs take their contents with them)
+        dst_deleted: set[str] = set()
+        dst_deleted_dirs: list[str] = []
         if rule.delete_orphans:
-            for rel in list(dst_map):
+            # Sorted so parents come before their children
+            for rel in sorted(dst_map):
+                if _under_any(rel, dst_deleted_dirs) or rel in conflicts or _under_any(rel, conflict_dirs):
+                    continue
                 is_excluded_root = (
                     exclusion.is_excluded_subfolder_root(rel)
                     or exclusion.is_excluded_folder_name_root(rel, dst_map[rel].is_dir)
@@ -190,11 +293,17 @@ async def _execute_sync(
                 is_excluded = exclusion.is_subfolder_excluded(rel) or exclusion.is_folder_name_excluded(rel, dst_map[rel].is_dir)
                 if is_excluded and not is_excluded_root:
                     continue
-                # Delete if: true orphan (not on source) OR root of an excluded folder
-                if rel not in src_map or is_excluded_root:
+                # One-way: every entry missing on the source is an orphan.
+                # Two-way: only entries deleted on the source since the last run —
+                # the others are new on the destination and get copied back below.
+                is_orphan = rel not in src_map and (not two_way or deleted_elsewhere(rel, dst_dirty))
+                if is_orphan or is_excluded_root:
                     dst_path = rule.dest_path.rstrip("/") + "/" + rel.lstrip("/")
                     try:
                         await dst.delete(dst_path)
+                        dst_deleted.add(rel)
+                        if dst_map[rel].is_dir:
+                            dst_deleted_dirs.append(rel)
                         job.files_deleted += 1
                         await _log(db, job.id, LogLevel.info, f"Deleted: {rel}", rel)
                     except Exception as exc:
@@ -202,12 +311,26 @@ async def _execute_sync(
                         has_error = True
 
         # --- Two-way: sync destination → source ---
-        if rule.direction == SyncDirection.two_way:
-            for rel, dst_entry in dst_map.items():
-                if dst_entry.is_dir or rel in src_map:
+        if two_way:
+            # Source dirs that could not be created — their contents are skipped
+            src_failed_dirs: list[str] = []
+            for rel in sorted(dst_map):
+                dst_entry = dst_map[rel]
+                if rel in src_map or rel in dst_deleted or _under_any(rel, dst_deleted_dirs):
+                    continue
+                if _under_any(rel, src_failed_dirs) or _under_any(rel, conflict_dirs) or exclusion.is_ignored(rel, dst_entry):
                     continue
                 src_path = rule.source_path.rstrip("/") + "/" + rel.lstrip("/")
                 dst_path = rule.dest_path.rstrip("/") + "/" + rel.lstrip("/")
+                if dst_entry.is_dir:
+                    try:
+                        await src.mkcol(src_path)
+                        await _log(db, job.id, LogLevel.info, f"Created dir on source: {src_path}", src_path)
+                    except Exception as exc:
+                        await _log(db, job.id, LogLevel.error, f"Failed to create dir {src_path} on source: {_exc_detail(exc)}", src_path)
+                        src_failed_dirs.append(rel)
+                        has_error = True
+                    continue
                 try:
                     await dst.copy_to(dst_path, src, src_path, dst_entry.size)
                     job.files_added += 1
@@ -216,6 +339,10 @@ async def _execute_sync(
                 except Exception as exc:
                     await _log(db, job.id, LogLevel.error, f"Failed reverse copy {rel}: {_exc_detail(exc)}", rel)
                     has_error = True
+
+            # Remember what is on both sides now, for the next run
+            if not await _write_state(db, job.id, rule, src, dst, src_state_doc, dst_state_doc, known, conflicts):
+                has_error = True
 
         final_status = JobStatus.partial if has_error else JobStatus.success
         await _finish_job(db, rule, job, final_status)
@@ -292,6 +419,15 @@ class _Exclusion:
             if part.startswith(".") or "~" in part or part.lower().endswith((".bak", ".tmp")):
                 return True
         return False
+
+    def is_ignored(self, rel: str, entry: DavEntry) -> bool:
+        """Return True if the entry is excluded from syncing by any filter."""
+        return (
+            self.is_subfolder_excluded(rel)
+            or self.is_folder_name_excluded(rel, entry.is_dir)
+            or self.is_hidden_path(rel)
+            or (not entry.is_dir and self.check(entry)[0])
+        )
 
     def check(self, entry: DavEntry) -> tuple[bool, str]:
         """Return (excluded, reason). Only applied to files, not directories."""
@@ -384,6 +520,169 @@ def _failed_ancestor(rel: str, failed_dirs: dict[str, int]) -> str | None:
         if rel.startswith(d + "/"):
             return d
     return None
+
+
+def _under_any(rel: str, dirs: list[str]) -> bool:
+    """Return True if rel lies below one of dirs."""
+    return any(rel.startswith(d + "/") for d in dirs)
+
+
+def _sig(entry: DavEntry) -> list:
+    """Change signature of an entry as stored in the state file: [mtime, size]."""
+    return [entry.mtime.timestamp() if entry.mtime else None, entry.size]
+
+
+def _two_way_action(src: DavEntry, dst: DavEntry, known: dict | None) -> str:
+    """Decide how to sync a file present on both sides in two-way mode.
+
+    Returns "none", "to_dst", "to_src" or "conflict". With a record from the last
+    run, each side is compared against its own recorded [mtime, size] — mtimes of
+    the two servers are never compared with each other. Without one (first run),
+    same-size files are taken as in sync and otherwise the newer one wins.
+    """
+    if known is not None and known.get("dir") is False:
+        src_changed = _sig(src) != known.get("src")
+        dst_changed = _sig(dst) != known.get("dst")
+        if src_changed and dst_changed:
+            return "conflict"
+        return "to_dst" if src_changed else "to_src" if dst_changed else "none"
+    if src.size == dst.size:
+        return "none"
+    if src.mtime and dst.mtime:
+        return "to_dst" if src.mtime >= dst.mtime else "to_src"
+    return "conflict"
+
+
+async def _same_content(
+    src: WebDAVClient, src_path: str, dst: WebDAVClient, dst_path: str, src_entry: DavEntry, dst_entry: DavEntry,
+) -> bool:
+    """Return True if both files have identical content (only checked up to SAME_CONTENT_MAX_BYTES)."""
+    if src_entry.size != dst_entry.size or src_entry.size > SAME_CONTENT_MAX_BYTES:
+        return False
+    try:
+        return await src.get_bytes(src_path) == await dst.get_bytes(dst_path)
+    except Exception:
+        return False
+
+
+async def _read_state(db: AsyncSession, job_id: int, client: WebDAVClient, root: str, side: str) -> dict:
+    """Load the state document from a sync root; empty if missing or unreadable."""
+    path = root.rstrip("/") + STATE_REL
+    try:
+        doc = json.loads(await client.get_bytes(path))
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 404:
+            await _log(db, job_id, LogLevel.warning, f"Could not read sync state on {side}: {_exc_detail(exc)}", path)
+        return {}
+    except Exception as exc:
+        await _log(db, job_id, LogLevel.warning, f"Ignoring unreadable sync state on {side}: {exc}", path)
+        return {}
+    if not isinstance(doc, dict) or doc.get("version") != STATE_VERSION or not isinstance(doc.get("rules"), dict):
+        await _log(db, job_id, LogLevel.warning, f"Ignoring sync state on {side} with unknown format", path)
+        return {}
+    return doc
+
+
+def _rule_state(doc: dict, rule: SyncRule) -> dict | None:
+    """Return the entries recorded for this rule, or None if absent or recorded for other paths."""
+    state = doc.get("rules", {}).get(str(rule.id))
+    if (
+        not isinstance(state, dict)
+        or state.get("source_path") != rule.source_path.rstrip("/")
+        or state.get("dest_path") != rule.dest_path.rstrip("/")
+        or not isinstance(state.get("entries"), dict)
+    ):
+        return None
+    return state["entries"]
+
+
+def _known_entries(rule: SyncRule, src_doc: dict, dst_doc: dict) -> dict[str, dict]:
+    """Entries that were on both sides after the last run, per the state on both sides.
+
+    Only entries recorded in both state files count — if one write failed or a file
+    is missing, the sync falls back to not deleting anything it isn't sure about.
+    """
+    src_entries = _rule_state(src_doc, rule)
+    dst_entries = _rule_state(dst_doc, rule)
+    if src_entries is None or dst_entries is None:
+        return {}
+    return {rel: e for rel, e in src_entries.items() if rel in dst_entries}
+
+
+def _dirty_paths(side_map: dict[str, DavEntry], known: dict[str, dict], side: str) -> set[str]:
+    """Paths on one side that are new or changed since the last run, plus all their ancestors.
+
+    A dirty entry must not be deleted, even if it was deleted on the other side —
+    for a dir that means it still holds something worth keeping.
+    """
+    dirty: set[str] = set()
+    for rel, entry in side_map.items():
+        k = known.get(rel)
+        if k is not None and k.get("dir") == entry.is_dir and (entry.is_dir or k.get(side) == _sig(entry)):
+            continue
+        parts = rel.split("/")
+        for i in range(2, len(parts) + 1):
+            dirty.add("/".join(parts[:i]))
+    return dirty
+
+
+async def _write_state(
+    db: AsyncSession,
+    job_id: int,
+    rule: SyncRule,
+    src: WebDAVClient,
+    dst: WebDAVClient,
+    src_doc: dict,
+    dst_doc: dict,
+    known: dict[str, dict],
+    conflicts: set[str],
+) -> bool:
+    """Record the entries now present on both sides in the state file of both roots.
+
+    Conflicting entries keep their previous record (or stay unrecorded), so the
+    conflict is reported again on every run until it is resolved.
+    """
+    try:
+        src_map = _build_map(await src.propfind(rule.source_path, depth="infinity"), rule.source_path)  # type: ignore[arg-type]
+        dst_map = _build_map(await dst.propfind(rule.dest_path, depth="infinity"), rule.dest_path)  # type: ignore[arg-type]
+    except Exception as exc:
+        await _log(db, job_id, LogLevel.error, f"Failed to list trees for sync state: {_exc_detail(exc)}")
+        return False
+
+    exclusion = _Exclusion(rule)
+    entries = {
+        rel: {"dir": s.is_dir, "src": _sig(s), "dst": _sig(dst_map[rel])}
+        for rel, s in src_map.items()
+        if rel != STATE_REL
+        and rel in dst_map
+        and dst_map[rel].is_dir == s.is_dir
+        and not exclusion.is_ignored(rel, s)
+        and rel not in conflicts
+    }
+    entries.update({rel: known[rel] for rel in conflicts if rel in known})
+    rule_state = {
+        "source_path": rule.source_path.rstrip("/"),
+        "dest_path": rule.dest_path.rstrip("/"),
+        "synced_at": datetime.now(timezone.utc).isoformat(),
+        "entries": entries,
+    }
+
+    ok = True
+    for side, client, root, doc in (
+        ("source", src, rule.source_path, src_doc),
+        ("destination", dst, rule.dest_path, dst_doc),
+    ):
+        # Keep the state of other rules sharing this root
+        rules = dict(doc.get("rules", {}))
+        rules[str(rule.id)] = rule_state
+        path = root.rstrip("/") + STATE_REL
+        data = json.dumps({"version": STATE_VERSION, "rules": rules}, separators=(",", ":")).encode()
+        try:
+            await client.put_bytes(path, data, "application/json")
+        except Exception as exc:
+            await _log(db, job_id, LogLevel.error, f"Failed to write sync state on {side}: {_exc_detail(exc)}", path)
+            ok = False
+    return ok
 
 
 def _fmt_bytes(n: int) -> str:
