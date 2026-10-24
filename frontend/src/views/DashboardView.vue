@@ -184,7 +184,7 @@ function usedPercent(account) {
             </template>
           </div>
           <div v-if="account.cron_enabled" class="account-cron">
-            <span class="meta-label">cron.php · every {{ account.cron_interval_minutes }} min</span>
+            <span class="meta-label">cron ({{ account.cron_interval_minutes }}')</span>
             <span v-if="!account.cron_last_run_at" class="badge badge-neutral">not called yet</span>
             <span v-else class="cron-last">
               {{ fmtInline(account.cron_last_run_at) }}
