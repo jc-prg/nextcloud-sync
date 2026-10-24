@@ -11,6 +11,7 @@ Sync selected folders between a local Nextcloud instance and a remote one on a s
 - **One-way or two-way** sync direction per rule
 - **Delete orphans** option to mirror deletions
 - **Job history** with per-file log viewer
+- **Nextcloud cron.php** — optionally call a server's `cron.php` at a fixed interval (Webcron mode)
 - **Web UI** — Vue 3 SPA served by the backend
 - **Single-user** with bcrypt password protection and JWT session tokens
 - **Encrypted credentials** — WebDAV passwords stored with AES-Fernet encryption at rest
@@ -113,7 +114,8 @@ next-sync/
 │   ├── sync/
 │   │   ├── webdav.py    # Async WebDAV client (PROPFIND / GET / PUT / DELETE)
 │   │   ├── engine.py    # Sync logic: tree diff, copy, delete orphans
-│   │   └── scheduler.py # APScheduler wrapper, one cron job per rule
+│   │   ├── nccron.py    # Periodic Nextcloud cron.php calls per account
+│   │   └── scheduler.py # APScheduler wrapper, one cron job per rule / cron.php call per account
 │   └── tests/           # pytest suite with an in-memory WebDAV server
 ├── frontend/
 │   └── src/
@@ -154,6 +156,7 @@ in memory (`backend/tests/fakedav.py`) and each test gets a fresh SQLite databas
 | `GET/POST` | `/api/accounts` | List / create WebDAV accounts |
 | `GET/PATCH/DELETE` | `/api/accounts/{id}` | Get / update / delete account |
 | `POST` | `/api/accounts/{id}/test` | Test WebDAV connectivity |
+| `POST` | `/api/accounts/{id}/cron` | Call the account's Nextcloud `cron.php` now |
 | `GET/POST` | `/api/rules` | List / create sync rules |
 | `GET/PATCH/DELETE` | `/api/rules/{id}` | Get / update / delete rule |
 | `POST` | `/api/rules/{id}/run` | Trigger immediate sync |
@@ -170,3 +173,14 @@ https://<your-nextcloud>/remote.php/dav/files/<username>
 ```
 
 Example: `https://cloud.example.com/remote.php/dav/files/alice`
+
+## Nextcloud background jobs (cron.php)
+
+For a Nextcloud server without system cron, NextSync can call its `cron.php`
+periodically: edit the account, enable *Call Nextcloud cron.php periodically*
+and set the interval (Nextcloud recommends 5 minutes). The URL is derived from
+the WebDAV URL (`https://cloud.example.com/remote.php/dav/files/alice` →
+`https://cloud.example.com/cron.php`) and can be overridden. In Nextcloud, set
+*Administration settings → Basic settings → Background jobs* to **Webcron**;
+if the server uses system cron, the call reports
+"Backgroundjobs are using system cron!" as an error.

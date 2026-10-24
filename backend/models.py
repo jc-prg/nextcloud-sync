@@ -25,6 +25,15 @@ class Account(Base):
     username: Mapped[str] = mapped_column(String, nullable=False)
     password_enc: Mapped[str] = mapped_column(String, nullable=False)
     storage_limit_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Periodic call of Nextcloud's cron.php (background jobs in "Webcron" mode)
+    cron_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    cron_interval_minutes: Mapped[int] = mapped_column(Integer, default=5)
+    cron_url: Mapped[str | None] = mapped_column(String, nullable=True)  # override; derived from webdav_url if empty
+    cron_last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cron_last_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    cron_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     source_rules: Mapped[list["SyncRule"]] = relationship(
@@ -33,6 +42,14 @@ class Account(Base):
     dest_rules: Mapped[list["SyncRule"]] = relationship(
         "SyncRule", foreign_keys="SyncRule.dest_account_id", back_populates="dest_account"
     )
+
+    @property
+    def cron_effective_url(self) -> str | None:
+        """cron_url, or <server root>/cron.php derived from a Nextcloud WebDAV URL."""
+        if self.cron_url:
+            return self.cron_url
+        idx = self.webdav_url.find("/remote.php/")
+        return self.webdav_url[:idx] + "/cron.php" if idx >= 0 else None
 
 
 class SyncDirection(str, enum.Enum):

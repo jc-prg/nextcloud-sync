@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
     scheduler = SyncScheduler()
     scheduler.start()
     await scheduler.load_rules()
+    await scheduler.load_accounts()
     app.state.scheduler = scheduler
 
     yield

@@ -43,6 +43,12 @@ async def _migrate(conn) -> None:
         "ALTER TABLE accounts ADD COLUMN storage_limit_bytes INTEGER",
         "ALTER TABLE sync_rules ADD COLUMN known_subfolders TEXT",
         "ALTER TABLE sync_rules ADD COLUMN exclude_folder_names TEXT",
+        "ALTER TABLE accounts ADD COLUMN cron_enabled BOOLEAN NOT NULL DEFAULT 0",
+        "ALTER TABLE accounts ADD COLUMN cron_interval_minutes INTEGER NOT NULL DEFAULT 5",
+        "ALTER TABLE accounts ADD COLUMN cron_url VARCHAR",
+        "ALTER TABLE accounts ADD COLUMN cron_last_run_at DATETIME",
+        "ALTER TABLE accounts ADD COLUMN cron_last_ok BOOLEAN",
+        "ALTER TABLE accounts ADD COLUMN cron_last_error TEXT",
     ]
     for sql in new_columns:
         try:

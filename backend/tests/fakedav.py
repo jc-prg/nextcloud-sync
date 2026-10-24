@@ -53,6 +53,9 @@ class FakeDav:
     quota: tuple[int, int] = (1000, 9000)
     # When set, PROPFIND waits for it — lets tests catch a job while it is running
     gate: asyncio.Event | None = None
+    # Nextcloud's cron.php at the server root (GET /cron.php)
+    cron_response: dict = field(default_factory=lambda: {"status": "success"})
+    cron_calls: int = 0
 
     def __post_init__(self) -> None:
         self.base_path = httpx.URL(self.base_url).path.rstrip("/")
@@ -118,6 +121,9 @@ class FakeDav:
             return httpx.Response(status, text=f"injected {status}")
 
         path = path.rstrip("/") or "/"
+        if path == "/cron.php" and method == "GET":
+            self.cron_calls += 1
+            return httpx.Response(200, json=self.cron_response)
         if method == "PROPFIND":
             if self.gate is not None:
                 await self.gate.wait()

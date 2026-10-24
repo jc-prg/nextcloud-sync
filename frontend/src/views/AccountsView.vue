@@ -11,6 +11,7 @@ const accounts = ref([])
 const loading = ref(true)
 const saving = ref(false)
 const testing = ref(null)
+const cronRunning = ref(null)
 const testResults = ref({})
 const deleteTarget = ref(null)
 const editTarget = ref(undefined) // undefined = closed, null = new, {id,...} = edit
@@ -18,7 +19,10 @@ const editTarget = ref(undefined) // undefined = closed, null = new, {id,...} = 
 const form = ref(emptyForm())
 
 function emptyForm() {
-  return { label: '', webdav_url: '', username: '', password: '', storage_limit_gb: '' }
+  return {
+    label: '', webdav_url: '', username: '', password: '', storage_limit_gb: '',
+    cron_enabled: false, cron_interval_minutes: 5, cron_url: '',
+  }
 }
 
 onMounted(async () => {
@@ -50,6 +54,9 @@ function openEdit(account) {
     username: account.username,
     password: '',
     storage_limit_gb: account.storage_limit_bytes != null ? (account.storage_limit_bytes / 1073741824).toFixed(2).replace(/\.?0+$/, '') : '',
+    cron_enabled: account.cron_enabled,
+    cron_interval_minutes: account.cron_interval_minutes,
+    cron_url: account.cron_url || '',
   }
 }
 
@@ -95,6 +102,30 @@ async function testConn(account) {
   } finally {
     testing.value = null
   }
+}
+
+// cron.php URL shown as placeholder: <server root>/cron.php derived from the WebDAV URL
+function derivedCronUrl(webdavUrl) {
+  const idx = (webdavUrl || '').indexOf('/remote.php/')
+  return idx >= 0 ? webdavUrl.slice(0, idx) + '/cron.php' : ''
+}
+
+async function runCron(account) {
+  cronRunning.value = account.id
+  try {
+    const updated = await accountsApi.runCron(account.id)
+    const i = accounts.value.findIndex((a) => a.id === account.id)
+    if (i >= 0) accounts.value[i] = updated
+  } catch (e) {
+    alert(e?.response?.data?.detail || 'cron.php call failed')
+  } finally {
+    cronRunning.value = null
+  }
+}
+
+function formatTime(iso) {
+  // Backend stores naive UTC timestamps
+  return iso ? new Date(iso.endsWith('Z') ? iso : iso + 'Z').toLocaleString() : ''
 }
 
 async function confirmDelete() {
@@ -144,6 +175,25 @@ async function confirmDelete() {
             <input v-model="form.storage_limit_gb" type="number" min="0" step="0.1" class="input" placeholder="leave blank to use server quota" />
             <small>Caps the usable storage shown in the dashboard; useful when sharing a server with others.</small>
           </div>
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input v-model="form.cron_enabled" type="checkbox" />
+              Call Nextcloud cron.php periodically
+            </label>
+            <small>Runs the server's background jobs (Nextcloud setting "Webcron"). Not needed if the server uses system cron.</small>
+          </div>
+          <template v-if="form.cron_enabled">
+            <div class="form-group">
+              <label>Interval (minutes)</label>
+              <input v-model.number="form.cron_interval_minutes" type="number" min="1" max="1440" step="1" class="input" />
+              <small>Nextcloud recommends every 5 minutes.</small>
+            </div>
+            <div class="form-group">
+              <label>cron.php URL <span style="font-weight:400;color:var(--text-muted);">— optional</span></label>
+              <input v-model="form.cron_url" class="input" :placeholder="derivedCronUrl(form.webdav_url) || 'https://cloud.example.com/cron.php'" />
+              <small>Leave blank to derive it from the WebDAV URL.</small>
+            </div>
+          </template>
         </div>
         <div style="margin-top:16px;display:flex;gap:8px;">
           <button class="btn btn-primary" :disabled="saving" @click="save">
@@ -170,6 +220,7 @@ async function confirmDelete() {
             <th>WebDAV URL</th>
             <th>Username</th>
             <th>Status</th>
+            <th>cron.php</th>
             <th></th>
           </tr>
         </thead>
@@ -185,8 +236,30 @@ async function confirmDelete() {
               <span v-else class="badge badge-neutral">—</span>
             </td>
             <td>
+              <span v-if="cronRunning === acc.id" class="spinner spinner-dark" style="width:14px;height:14px;" />
+              <span
+                v-else-if="acc.cron_last_ok === true"
+                class="badge badge-success"
+                :title="`Last call: ${formatTime(acc.cron_last_run_at)}`"
+              >✓ {{ acc.cron_enabled ? `every ${acc.cron_interval_minutes} min` : 'OK' }}</span>
+              <span
+                v-else-if="acc.cron_last_ok === false"
+                class="badge badge-error"
+                :title="`${formatTime(acc.cron_last_run_at)}: ${acc.cron_last_error}`"
+              >✕ Failed</span>
+              <span v-else-if="acc.cron_enabled" class="badge badge-neutral">every {{ acc.cron_interval_minutes }} min</span>
+              <span v-else class="badge badge-neutral">off</span>
+            </td>
+            <td>
               <div class="actions">
                 <button class="btn btn-secondary btn-sm" :disabled="testing === acc.id" @click="testConn(acc)">Test</button>
+                <button
+                  v-if="acc.cron_effective_url"
+                  class="btn btn-secondary btn-sm"
+                  :disabled="cronRunning === acc.id"
+                  :title="`Call ${acc.cron_effective_url} now`"
+                  @click="runCron(acc)"
+                >Cron</button>
                 <button class="btn btn-secondary btn-sm" @click="openEdit(acc)">Edit</button>
                 <button class="btn btn-danger btn-sm" @click="deleteTarget = acc">Delete</button>
               </div>

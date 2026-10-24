@@ -62,7 +62,7 @@ Single Python process running FastAPI + APScheduler in the same event loop.
 **Sync layer** (`backend/sync/`):
 - `webdav.py` — `WebDAVClient` async context manager; `propfind(path, depth)` parses multistatus XML and returns `DavEntry` list with `rel_path` (relative to the account's WebDAV base)
 - `engine.py` — `run_sync(rule_id)` opens its own `SessionLocal`, lists both trees with `depth=infinity`, diffs by ETag then mtime+size, streams files with GET→PUT, marks job `partial` on per-file errors. Two-way rules keep a `.next-sync` JSON state file (keyed by rule id) in the root of source and destination, recording each entry's [mtime, size] per side after the last run. Each side is compared only against its own record: changed on one side → copied to the other, changed on both → logged as a conflict and left untouched (unless contents are identical), "new on one side" vs "deleted on the other" decides copy vs delete (deletions only with `delete_orphans`, never for entries changed since the last run)
-- `scheduler.py` — `SyncScheduler` wraps `AsyncIOScheduler`; `add_rule(rule)` uses `replace_existing=True` so it doubles as reschedule; scheduler instance lives on `app.state.scheduler`
+- `scheduler.py` — `SyncScheduler` wraps `AsyncIOScheduler`; `add_rule(rule)` uses `replace_existing=True` so it doubles as reschedule; scheduler instance lives on `app.state.scheduler`. `add_account_cron(account)` does the same for the per-account `IntervalTrigger` that calls Nextcloud's `cron.php` (`nccron.py`, URL from `Account.cron_effective_url`); the accounts router calls it on create/update/delete
 
 ### Frontend (`frontend/src/`)
 
