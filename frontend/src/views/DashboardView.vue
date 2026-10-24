@@ -65,6 +65,10 @@ function fmt(dt) {
   return `${d.toLocaleDateString()}<br>${timeStr}`
 }
 
+function fmtInline(dt) {
+  return fmt(dt).replace('<br>', ' ')
+}
+
 function transferred(bytes) {
   if (!bytes) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -178,6 +182,15 @@ function usedPercent(account) {
                 </span>
               </div>
             </template>
+          </div>
+          <div v-if="account.cron_enabled" class="account-cron">
+            <span class="meta-label">cron.php · every {{ account.cron_interval_minutes }} min</span>
+            <span v-if="!account.cron_last_run_at" class="badge badge-neutral">not called yet</span>
+            <span v-else class="cron-last">
+              {{ fmtInline(account.cron_last_run_at) }}
+              <span v-if="account.cron_last_ok" class="badge badge-success">✓ OK</span>
+              <span v-else class="badge badge-error" :title="account.cron_last_error">✕ Failed</span>
+            </span>
           </div>
         </div>
       </div>
@@ -298,6 +311,16 @@ function usedPercent(account) {
 .quota-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); }
 .quota-cap-hint { font-size: 11px; opacity: .7; }
 .quota-error, .quota-unknown { font-size: 12px; color: var(--text-muted); }
+
+.account-cron {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px 10px;
+  border-top: 1px solid var(--border-light);
+}
+.cron-last { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 
 .rules-grid {
   display: grid;
