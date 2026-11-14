@@ -244,11 +244,6 @@ function layoutEdges() {
   sameLinks.value = links
 }
 
-watch(columns, async () => {
-  await nextTick()
-  layoutEdges()
-})
-
 function openRule(rule) {
   router.push(`/rules/${rule.id}/edit`)
 }
@@ -301,6 +296,12 @@ const columns = computed(() => [
     cards: sorted('dst', [...destCards.value, ...appCards.value]),
   },
 ])
+
+// Re-layout the edges whenever cards, rows or their order change
+watch(columns, async () => {
+  await nextTick()
+  layoutEdges()
+})
 
 function onDragStart(e, col, card) {
   drag.value = { side: col.side, key: card.headKey, before: order.value[col.side] }
