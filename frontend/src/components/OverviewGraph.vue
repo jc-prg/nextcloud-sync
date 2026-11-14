@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { settingsApi } from '@/api/settings'
 
 const router = useRouter()
 const props = defineProps({
@@ -22,6 +23,7 @@ const hovered = ref(null)
 let ro = null
 
 onMounted(async () => {
+  loadOrder()
   await nextTick()
   if (wrap.value) {
     ro = new ResizeObserver(layoutEdges)
@@ -242,7 +244,7 @@ function layoutEdges() {
   sameLinks.value = links
 }
 
-watch([deviceCards, sourceCards, destCards, appCards], async () => {
+watch(columns, async () => {
   await nextTick()
   layoutEdges()
 })
@@ -267,15 +269,75 @@ function accountLabel(id) {
   return accounts.value.find((a) => a.id === id)?.label ?? `#${id}`
 }
 
+// ── Card order per column (drag & drop, stored in the backend) ────────────
+
+const ORDER_KEY = 'overview_order'
+const order = ref({}) // side → [headKey, …]; cards not listed keep their default order at the end
+const drag = ref(null) // { side, key, before } while a card is dragged
+
+async function loadOrder() {
+  try {
+    order.value = (await settingsApi.get(ORDER_KEY)) ?? {}
+  } catch {
+    // keep the default order
+  }
+}
+
+function sorted(side, cards) {
+  const keys = order.value[side] ?? []
+  const pos = (c) => {
+    const i = keys.indexOf(c.headKey)
+    return i < 0 ? Infinity : i
+  }
+  return [...cards].sort((a, b) => pos(a) - pos(b)) // stable: unlisted cards keep their order
+}
+
 const columns = computed(() => [
-  ...(props.devices.length ? [{ side: 'dev', title: 'Devices', cards: deviceCards.value }] : []),
-  { side: 'src', title: 'Sources', cards: sourceCards.value },
+  ...(props.devices.length ? [{ side: 'dev', title: 'Devices', cards: sorted('dev', deviceCards.value) }] : []),
+  { side: 'src', title: 'Sources', cards: sorted('src', sourceCards.value) },
   {
     side: 'dst',
     title: props.apps.length ? 'Destinations & Apps' : 'Destinations',
-    cards: [...destCards.value, ...appCards.value],
+    cards: sorted('dst', [...destCards.value, ...appCards.value]),
   },
 ])
+
+function onDragStart(e, col, card) {
+  drag.value = { side: col.side, key: card.headKey, before: order.value[col.side] }
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', card.headKey) // Firefox only starts a drag with data
+}
+
+// Reorders live while dragging over another card of the same column
+function onDragOver(e, col, card) {
+  if (!drag.value || drag.value.side !== col.side) return
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'move'
+  if (card.headKey === drag.value.key) return
+  const r = e.currentTarget.getBoundingClientRect()
+  const after = e.clientY > r.top + r.height / 2
+  const keys = col.cards.map((c) => c.headKey).filter((k) => k !== drag.value.key)
+  keys.splice(keys.indexOf(card.headKey) + (after ? 1 : 0), 0, drag.value.key)
+  if (keys.join() !== col.cards.map((c) => c.headKey).join()) {
+    order.value = { ...order.value, [col.side]: keys }
+  }
+}
+
+async function onDragEnd(e) {
+  const d = drag.value
+  drag.value = null
+  if (!d) return
+  if (e.dataTransfer.dropEffect === 'none') {
+    // Cancelled (Esc or dropped outside the column): restore the previous order
+    order.value = { ...order.value, [d.side]: d.before }
+    return
+  }
+  try {
+    await settingsApi.put(ORDER_KEY, order.value)
+  } catch {
+    alert('Could not save the order')
+  }
+}
 
 function host(url) {
   try { return new URL(url).host } catch { return url }
@@ -290,9 +352,26 @@ function edgeTitle(rule) {
 <template>
     <div class="graph-scroll">
       <div ref="wrap" class="graph" :class="{ 'with-apps': apps.length }" :style="{ '--cols': columns.length }">
-        <div v-for="col in columns" :key="col.side" class="col">
+        <div
+          v-for="col in columns"
+          :key="col.side"
+          class="col"
+          @dragover="drag?.side === col.side && $event.preventDefault()"
+          @drop.prevent
+        >
           <h2 class="col-title">{{ col.title }}</h2>
-          <div v-for="c in col.cards" :key="c.headKey" class="node card" :class="{ device: c.device, app: c.app }">
+          <div
+            v-for="c in col.cards"
+            :key="c.headKey"
+            class="node card"
+            :class="{ device: c.device, app: c.app, dragging: drag?.key === c.headKey }"
+            draggable="true"
+            title="Drag to reorder within the column"
+            @dragstart="onDragStart($event, col, c)"
+            @dragover="onDragOver($event, col, c)"
+            @drop.prevent
+            @dragend="onDragEnd"
+          >
             <button v-if="c.device" class="node-head" :data-node="c.headKey" title="Edit device" @click="openDevice(c.device)">
               <strong>{{ c.device.label }}</strong>
               <span class="host">Nextcloud client</span>
@@ -403,7 +482,8 @@ function edgeTitle(rule) {
 .col { display: flex; flex-direction: column; gap: 24px; }
 .col-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0; }
 .unused { grid-column: 1 / -1; margin: 24px 0 0; font-size: 13px; color: var(--text-muted); }
-.node { overflow: hidden; }
+.node { overflow: hidden; cursor: grab; }
+.node.dragging { opacity: .45; outline: 2px dashed var(--primary); outline-offset: -2px; }
 .node-head {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   width: 100%; padding: 12px 14px;

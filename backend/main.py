@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.database import SessionLocal, init_db
 from backend.routers import accounts, apps, auth, browse, devices, jobs, rules
+from backend.routers import settings as settings_router  # not backend.config.settings
 from backend.sync.scheduler import SyncScheduler
 
 
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(devices.router)
     app.include_router(apps.router)
+    app.include_router(settings_router.router)
 
     # Serve the built frontend from frontend/dist if it exists
     from pathlib import Path

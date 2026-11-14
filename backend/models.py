@@ -170,3 +170,12 @@ class App(Base):
     # JSON list of {"account_id": 1, "account_path": "/Notes"}
     folders: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class Setting(Base):
+    """Small UI settings stored as JSON by key (e.g. the card order of the overview)."""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
