@@ -177,14 +177,20 @@ function layoutEdges() {
     used.set(key, n + 1)
     return (n % 2 ? 1 : -1) * Math.ceil(n / 2) * 4
   }
+  // An edge attaches to its folder row, or to the card head while the card is collapsed
+  const anchor = (rowKey, headKey) => {
+    const key = rects.has(rowKey) ? rowKey : headKey
+    const r = rects.get(key)
+    return r && { ...r, y: r.cy + slot(key) }
+  }
 
   const out = []
   for (const rule of drawable.value) {
-    const s = rects.get(nodeKey('src', rule.source_account_id, rule.source_path))
-    const d = rects.get(nodeKey('dst', rule.dest_account_id, rule.dest_path))
+    const s = anchor(nodeKey('src', rule.source_account_id, rule.source_path), `src:${rule.source_account_id}`)
+    const d = anchor(nodeKey('dst', rule.dest_account_id, rule.dest_path), `dst:${rule.dest_account_id}`)
     if (!s || !d) continue
-    const sy = s.cy + slot('s' + rule.source_account_id + rule.source_path)
-    const dy = d.cy + slot('d' + rule.dest_account_id + rule.dest_path)
+    const sy = s.y
+    const dy = d.y
     const mid = Math.max(40, (d.left - s.right) / 2)
     out.push({
       rule,
@@ -195,11 +201,11 @@ function layoutEdges() {
 
   const client = []
   for (const { device, folder, side } of deviceLinks.value) {
-    const s = rects.get(nodeKey('dev', device.id, folder.path))
-    const d = rects.get(nodeKey(side, folder.account_id, folder.account_path))
+    const s = anchor(nodeKey('dev', device.id, folder.path), `dev:${device.id}`)
+    const d = anchor(nodeKey(side, folder.account_id, folder.account_path), `${side}:${folder.account_id}`)
     if (!s || !d) continue
-    const sy = s.cy + slot('v' + device.id + folder.path)
-    const dy = d.cy + slot(side[0] + folder.account_id + normPath(folder.account_path))
+    const sy = s.y
+    const dy = d.y
     const mid = Math.max(40, (d.left - s.right) / 2)
     client.push({
       key: `${device.id}:${folder.path}`,
@@ -212,11 +218,11 @@ function layoutEdges() {
 
   const appOut = []
   for (const { app, folder, idx, side } of appLinks.value) {
-    const s = rects.get(nodeKey(side, folder.account_id, folder.account_path))
-    const d = rects.get(`app:${app.id}:${idx}`)
+    const s = anchor(nodeKey(side, folder.account_id, folder.account_path), `${side}:${folder.account_id}`)
+    const d = anchor(`app:${app.id}:${idx}`, `app:${app.id}`)
     if (!s || !d) continue
-    const sy = s.cy + slot(side[0] + folder.account_id + normPath(folder.account_path))
-    const dy = d.cy
+    const sy = s.y
+    const dy = d.y
     let path
     if (side === 'dst') {
       // Account card sits in the same column above the app: loop around the right side
@@ -299,8 +305,28 @@ const columns = computed(() => [
   },
 ])
 
-// Re-layout the edges whenever cards, rows or their order change
-watch(columns, async () => {
+// ── Collapsing cards (all collapsed by default) ─────────────────────────────
+
+const expanded = ref(new Set()) // headKeys of expanded cards
+
+function toggleCard(card) {
+  const next = new Set(expanded.value)
+  if (!next.delete(card.headKey)) next.add(card.headKey)
+  expanded.value = next
+}
+
+function expandAll() {
+  expanded.value = new Set(columns.value.flatMap((col) => col.cards.map((c) => c.headKey)))
+}
+
+function collapseAll() {
+  expanded.value = new Set()
+}
+
+defineExpose({ expandAll, collapseAll })
+
+// Re-layout the edges whenever cards, rows, their order or collapsed state change
+watch([columns, expanded], async () => {
   await nextTick()
   layoutEdges()
 })
@@ -387,19 +413,27 @@ function edgeTitle(rule) {
               <strong>{{ c.acc.label }}</strong>
               <span class="mono host">{{ host(c.acc.webdav_url) }}</span>
             </button>
-            <p v-if="c.rows.length === 0" class="none">No folders yet</p>
-            <ul v-else class="folders">
-              <li
-                v-for="row in c.rows"
-                :key="row.key"
-                :data-node="row.key"
-                :title="row.title"
-                :class="{ endpoint: row.endpoint }"
-                :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
-              >
-                <span class="ico">▸</span>{{ row.name }}
-              </li>
-            </ul>
+            <button
+              class="toggle"
+              :title="expanded.has(c.headKey) ? 'Collapse' : `Expand (${c.rows.length} folder${c.rows.length === 1 ? '' : 's'})`"
+              :aria-expanded="expanded.has(c.headKey)"
+              @click="toggleCard(c)"
+            >{{ expanded.has(c.headKey) ? '▾' : '▸' }}</button>
+            <template v-if="expanded.has(c.headKey)">
+              <p v-if="c.rows.length === 0" class="none">No folders yet</p>
+              <ul v-else class="folders">
+                <li
+                  v-for="row in c.rows"
+                  :key="row.key"
+                  :data-node="row.key"
+                  :title="row.title"
+                  :class="{ endpoint: row.endpoint }"
+                  :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
+                >
+                  <span class="ico">▸</span>{{ row.name }}
+                </li>
+              </ul>
+            </template>
           </div>
         </div>
         <p v-if="unusedAccounts.length" class="unused">
@@ -486,11 +520,18 @@ function edgeTitle(rule) {
 .col { display: flex; flex-direction: column; gap: 24px; }
 .col-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0; }
 .unused { grid-column: 1 / -1; margin: 24px 0 0; font-size: 13px; color: var(--text-muted); }
-.node { overflow: hidden; cursor: grab; }
+.node { overflow: hidden; cursor: grab; position: relative; }
+.toggle {
+  position: absolute; top: 8px; right: 8px;
+  width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: 4px; background: transparent;
+  color: var(--text-muted); font-size: 13px; cursor: pointer;
+}
+.toggle:hover { background: var(--border); color: var(--text); }
 .node.dragging { opacity: .45; outline: 2px dashed var(--primary); outline-offset: -2px; }
 .node-head {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  width: 100%; padding: 12px 14px;
+  width: 100%; padding: 12px 36px 12px 14px; /* room for the collapse toggle */
   background: var(--primary-light); border: 0; border-bottom: 1px solid var(--border);
   color: var(--text); text-align: left; cursor: pointer; font: inherit;
 }

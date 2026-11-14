@@ -15,6 +15,7 @@ const latestJobs = ref({}) // rule_id → SyncJob
 const accounts = ref([])
 const devices = ref([])
 const apps = ref([])
+const graph = ref(null)
 const quotas = ref({}) // account_id → { used, available }
 const loading = ref(true)
 const triggering = ref(null)
@@ -144,8 +145,12 @@ function usedPercent(account) {
       <template v-if="accounts.length > 0 || devices.length > 0 || apps.length > 0">
         <div class="section-header">
           <h2>Overview</h2>
+          <div class="actions">
+            <button class="btn btn-ghost btn-sm" @click="graph?.expandAll()">Expand all</button>
+            <button class="btn btn-ghost btn-sm" @click="graph?.collapseAll()">Collapse all</button>
+          </div>
         </div>
-        <OverviewGraph :accounts="accounts" :rules="rules" :devices="devices" :apps="apps" style="margin-bottom:40px;" />
+        <OverviewGraph ref="graph" :accounts="accounts" :rules="rules" :devices="devices" :apps="apps" style="margin-bottom:40px;" />
       </template>
 
       <!-- Accounts -->
