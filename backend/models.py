@@ -154,3 +154,19 @@ class Device(Base):
     # JSON list of {"path": "/Documents", "account_id": 1 | null, "account_path": "/Docs" | null}
     folders: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class App(Base):
+    """An application that uses account folders via WebDAV (e.g. a notes or password app).
+
+    Like `Device`, it is display only: it shows in the overview next to the destinations.
+    """
+
+    __tablename__ = "apps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    note: Mapped[str | None] = mapped_column(String, nullable=True)
+    # JSON list of {"account_id": 1, "account_path": "/Notes"}
+    folders: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

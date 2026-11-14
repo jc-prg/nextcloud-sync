@@ -7,12 +7,14 @@ const props = defineProps({
   rules: { type: Array, required: true },
   accounts: { type: Array, required: true },
   devices: { type: Array, default: () => [] },
+  apps: { type: Array, default: () => [] },
 })
 const rules = computed(() => props.rules)
 const accounts = computed(() => props.accounts)
 const wrap = ref(null)
 const edges = ref([])
 const clientEdges = ref([])
+const appEdges = ref([])
 const sameLinks = ref([])
 const size = ref({ w: 0, h: 0 })
 const hovered = ref(null)
@@ -32,7 +34,7 @@ onBeforeUnmount(() => ro?.disconnect())
 
 const segments = (p) => (p || '').split('/').filter(Boolean)
 const normPath = (p) => '/' + segments(p).join('/')
-// side is 'dev' (devices column), 'src' (sources) or 'dst' (destinations)
+// side is 'dev' (devices column), 'src' (sources), 'dst' (destinations) or 'app' (apps, below the destinations)
 const nodeKey = (side, accId, p) => `${side}:${accId}:${normPath(p)}`
 
 const accountIds = computed(() => new Set(accounts.value.map((a) => a.id)))
@@ -44,23 +46,31 @@ const drawable = computed(() =>
   ),
 )
 
-// Folders of devices (synced by the Nextcloud client) linked to an existing account.
-// The link goes to the account's source card; to its destination card only if the
-// account is used as destination alone.
-const deviceLinks = computed(() => {
+// Device and app folders link to the account's source card; to its destination card
+// only if rules use the account as destination alone.
+const linkSide = computed(() => {
   const ruleSrc = new Set(drawable.value.map((r) => r.source_account_id))
   const ruleDst = new Set(drawable.value.map((r) => r.dest_account_id))
-  const out = []
-  for (const device of props.devices) {
-    for (const folder of device.folders) {
-      const id = folder.account_id
-      if (!accountIds.value.has(id)) continue
-      const side = ruleSrc.has(id) || !ruleDst.has(id) ? 'src' : 'dst'
-      out.push({ device, folder, side })
-    }
-  }
-  return out
+  return (id) => (ruleSrc.has(id) || !ruleDst.has(id) ? 'src' : 'dst')
 })
+
+// Folders of devices (synced by the Nextcloud client) linked to an existing account
+const deviceLinks = computed(() =>
+  props.devices.flatMap((device) =>
+    device.folders
+      .filter((folder) => accountIds.value.has(folder.account_id))
+      .map((folder) => ({ device, folder, side: linkSide.value(folder.account_id) })),
+  ),
+)
+
+// Account folders used by apps via WebDAV
+const appLinks = computed(() =>
+  props.apps.flatMap((app) =>
+    app.folders
+      .map((folder, idx) => ({ app, folder, idx, side: linkSide.value(folder.account_id) }))
+      .filter((l) => accountIds.value.has(l.folder.account_id)),
+  ),
+)
 
 // Build one card per account and side, listing the folders used on that side (plus ancestors)
 function buildCards(side) {
@@ -69,7 +79,9 @@ function buildCards(side) {
   const trees = new Map()
   const endpoints = [
     ...drawable.value.map((r) => [r[idKey], r[pathKey]]),
-    ...deviceLinks.value.filter((l) => l.side === side).map((l) => [l.folder.account_id, l.folder.account_path]),
+    ...[...deviceLinks.value, ...appLinks.value]
+      .filter((l) => l.side === side)
+      .map((l) => [l.folder.account_id, l.folder.account_path]),
   ]
 
   for (const [accId, path] of endpoints) {
@@ -109,6 +121,19 @@ const deviceCards = computed(() =>
       key: nodeKey('dev', device.id, f.path),
       name: segments(f.path).at(-1),
       depth: segments(f.path).length - 1,
+      endpoint: accountIds.value.has(f.account_id),
+    })),
+  })),
+)
+// One row per account folder the app uses
+const appCards = computed(() =>
+  props.apps.map((app) => ({
+    app,
+    headKey: `app:${app.id}`,
+    rows: app.folders.map((f, idx) => ({
+      key: `app:${app.id}:${idx}`,
+      name: `${accountLabel(f.account_id)}:${normPath(f.account_path)}`,
+      depth: 0,
       endpoint: accountIds.value.has(f.account_id),
     })),
   })),
@@ -181,6 +206,31 @@ function layoutEdges() {
   }
   clientEdges.value = client
 
+  const appOut = []
+  for (const { app, folder, idx, side } of appLinks.value) {
+    const s = rects.get(nodeKey(side, folder.account_id, folder.account_path))
+    const d = rects.get(`app:${app.id}:${idx}`)
+    if (!s || !d) continue
+    const sy = s.cy + slot(side[0] + folder.account_id + normPath(folder.account_path))
+    const dy = d.cy
+    let path
+    if (side === 'dst') {
+      // Account card sits in the same column above the app: loop around the right side
+      const out = Math.max(s.right, d.right) + 48
+      path = `M${s.right},${sy} C${out},${sy} ${out},${dy} ${d.right},${dy}`
+    } else {
+      const mid = Math.max(40, (d.left - s.right) / 2)
+      path = `M${s.right},${sy} C${s.right + mid},${sy} ${d.left - mid},${dy} ${d.left},${dy}`
+    }
+    appOut.push({
+      key: `${app.id}:${idx}`,
+      app,
+      title: `${app.label} ⇄ ${accountLabel(folder.account_id)}:${normPath(folder.account_path)}\nWebDAV app`,
+      path,
+    })
+  }
+  appEdges.value = appOut
+
   const links = []
   for (const id of bothSides.value) {
     const s = rects.get(`src:${id}`)
@@ -192,7 +242,7 @@ function layoutEdges() {
   sameLinks.value = links
 }
 
-watch([deviceCards, sourceCards, destCards], async () => {
+watch([deviceCards, sourceCards, destCards, appCards], async () => {
   await nextTick()
   layoutEdges()
 })
@@ -202,11 +252,15 @@ function openRule(rule) {
 }
 
 function openAccount(acc) {
-  router.push({ path: '/accounts', query: { edit: acc.id } })
+  router.push({ path: '/accounts', query: { account: acc.id } })
 }
 
 function openDevice(device) {
-  router.push({ path: '/devices', query: { edit: device.id } })
+  router.push({ path: '/accounts', query: { device: device.id } })
+}
+
+function openApp(app) {
+  router.push({ path: '/accounts', query: { app: app.id } })
 }
 
 function accountLabel(id) {
@@ -216,7 +270,11 @@ function accountLabel(id) {
 const columns = computed(() => [
   ...(props.devices.length ? [{ side: 'dev', title: 'Devices', cards: deviceCards.value }] : []),
   { side: 'src', title: 'Sources', cards: sourceCards.value },
-  { side: 'dst', title: 'Destinations', cards: destCards.value },
+  {
+    side: 'dst',
+    title: props.apps.length ? 'Destinations & Apps' : 'Destinations',
+    cards: [...destCards.value, ...appCards.value],
+  },
 ])
 
 function host(url) {
@@ -231,13 +289,17 @@ function edgeTitle(rule) {
 
 <template>
     <div class="graph-scroll">
-      <div ref="wrap" class="graph" :style="{ '--cols': columns.length }">
+      <div ref="wrap" class="graph" :class="{ 'with-apps': apps.length }" :style="{ '--cols': columns.length }">
         <div v-for="col in columns" :key="col.side" class="col">
           <h2 class="col-title">{{ col.title }}</h2>
-          <div v-for="c in col.cards" :key="c.headKey" class="node card" :class="{ device: col.side === 'dev' }">
+          <div v-for="c in col.cards" :key="c.headKey" class="node card" :class="{ device: c.device, app: c.app }">
             <button v-if="c.device" class="node-head" :data-node="c.headKey" title="Edit device" @click="openDevice(c.device)">
               <strong>{{ c.device.label }}</strong>
               <span class="host">Nextcloud client</span>
+            </button>
+            <button v-else-if="c.app" class="node-head" :data-node="c.headKey" title="Edit app" @click="openApp(c.app)">
+              <strong>{{ c.app.label }}</strong>
+              <span class="host">{{ c.app.note || 'WebDAV app' }}</span>
             </button>
             <button v-else class="node-head" :data-node="c.headKey" title="Open account" @click="openAccount(c.acc)">
               <strong>{{ c.acc.label }}</strong>
@@ -264,7 +326,7 @@ function edgeTitle(rule) {
         <svg class="edges" :width="size.w" :height="size.h">
           <defs>
             <marker
-              v-for="m in [{ id: 'arrow', color: 'var(--primary)' }, { id: 'arrow-hot', color: 'var(--primary-hover)' }, { id: 'arrow-client', color: 'var(--client)' }]"
+              v-for="m in [{ id: 'arrow', color: 'var(--primary)' }, { id: 'arrow-hot', color: 'var(--primary-hover)' }, { id: 'arrow-client', color: 'var(--client)' }, { id: 'arrow-app', color: 'var(--app)' }]"
               :id="m.id"
               :key="m.id"
               viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"
@@ -273,6 +335,19 @@ function edgeTitle(rule) {
             </marker>
           </defs>
           <path v-for="l in sameLinks" :key="'same' + l.id" class="same" :d="l.path" />
+          <g
+            v-for="e in appEdges"
+            :key="'app' + e.key"
+            class="edge app"
+            :class="{ hot: hovered === 'app' + e.key }"
+            @click="openApp(e.app)"
+            @mouseenter="hovered = 'app' + e.key"
+            @mouseleave="hovered = null"
+          >
+            <title>{{ e.title }}</title>
+            <path class="hit" :d="e.path" />
+            <path class="line" :d="e.path" marker-start="url(#arrow-app)" marker-end="url(#arrow-app)" />
+          </g>
           <g
             v-for="e in clientEdges"
             :key="'client' + e.key"
@@ -318,10 +393,13 @@ function edgeTitle(rule) {
   grid-template-columns: repeat(var(--cols), 260px);
   justify-content: start;
   --client: #8b5cf6;
+  --app: #0d9488;
   align-items: start;
   column-gap: 160px;
   padding: 8px;
 }
+/* Room for edges looping from a destination card to an app card in the same column */
+.graph.with-apps { padding-right: 64px; }
 .col { display: flex; flex-direction: column; gap: 24px; }
 .col-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0; }
 .unused { grid-column: 1 / -1; margin: 24px 0 0; font-size: 13px; color: var(--text-muted); }
@@ -336,6 +414,8 @@ function edgeTitle(rule) {
 .host { font-size: 12px; color: var(--text-muted); }
 .device .node-head { background: color-mix(in srgb, var(--client) 12%, var(--card-bg)); }
 .device .node-head:hover { background: color-mix(in srgb, var(--client) 20%, var(--card-bg)); }
+.app .node-head { background: color-mix(in srgb, var(--app) 12%, var(--card-bg)); }
+.app .node-head:hover { background: color-mix(in srgb, var(--app) 20%, var(--card-bg)); }
 .folders { list-style: none; margin: 0; padding: 6px 0; }
 .folders li {
   padding: 5px 12px; font-size: 13px; color: var(--text-light);
@@ -354,6 +434,7 @@ function edgeTitle(rule) {
 .edge.hot .line { stroke-width: 3.5; }
 .edge.hot { color: var(--primary-hover); }
 .edge.client, .edge.client.hot { color: var(--client); }
+.edge.app, .edge.app.hot { color: var(--app); }
 
 @media (max-width: 640px) {
   .graph { grid-template-columns: repeat(var(--cols), minmax(160px, 1fr)); column-gap: 56px; }

@@ -73,15 +73,20 @@ async def delete_device(
 
 async def _dump_folders(db: AsyncSession, folders: list[DeviceFolder]) -> str | None:
     folders = normalize_folders(folders)
-    linked = {f.account_id for f in folders if f.account_id is not None}
-    if linked:
-        known = set((await db.execute(select(Account.id).where(Account.id.in_(linked)))).scalars())
-        if linked - known:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Unknown account id(s): {sorted(linked - known)}",
-            )
+    await check_accounts_exist(db, {f.account_id for f in folders if f.account_id is not None})
     return json.dumps([f.model_dump() for f in folders]) if folders else None
+
+
+async def check_accounts_exist(db: AsyncSession, ids: set[int]) -> None:
+    """422 if a folder links to an account that does not exist (also used by the apps router)."""
+    if not ids:
+        return
+    known = set((await db.execute(select(Account.id).where(Account.id.in_(ids)))).scalars())
+    if ids - known:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown account id(s): {sorted(ids - known)}",
+        )
 
 
 async def _get_or_404(db: AsyncSession, device_id: int) -> Device:

@@ -32,8 +32,7 @@ onUnmounted(() => document.removeEventListener('click', onClickOutside))
 
 const nav = [
   { path: '/dashboard', label: 'Dashboard', icon: '◈' },
-  { path: '/devices', label: 'Devices', icon: '▭' },
-  { path: '/accounts', label: 'Accounts', icon: '⬡' },
+  { path: '/accounts', label: 'Accounts & Devices', icon: '⬡' },
   { path: '/rules', label: 'Sync Rules', icon: '⇄' },
   { path: '/history', label: 'History', icon: '◷' },
 ]

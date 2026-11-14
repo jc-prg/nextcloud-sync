@@ -6,16 +6,17 @@
  * folders can be linked to a folder of an account, so the dashboard overview can
  * show the device as the first stage of the sync chain.
  */
-import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
 import { devicesApi } from '@/api/devices'
 import { accountsApi } from '@/api/accounts'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import FolderTree from '@/components/FolderTree.vue'
 import { addFolder, removeFolder, renameFolder, depth, baseName, isWithin } from '@/utils/deviceTree'
 
-const route = useRoute()
-const router = useRouter()
+const props = defineProps({
+  openId: { type: Number, default: null }, // device to open for editing (deep link from the overview)
+  accountsVersion: { type: Number, default: 0 }, // bumped when accounts change
+})
 
 const devices = ref([])
 const accounts = ref([])
@@ -33,13 +34,12 @@ const accountById = computed(() => new Map(accounts.value.map((a) => [a.id, a]))
 
 onMounted(async () => {
   await load()
-  // Deep link from the overview graph: /devices?edit=<id>
-  const editId = Number(route.query.edit)
-  if (editId) {
-    const dev = devices.value.find((d) => d.id === editId)
-    if (dev) openEdit(dev)
-    router.replace({ path: '/devices' })
-  }
+  const dev = devices.value.find((d) => d.id === props.openId)
+  if (dev) openEdit(dev)
+})
+
+watch(() => props.accountsVersion, async () => {
+  accounts.value = await accountsApi.list()
 })
 
 async function load() {
@@ -155,7 +155,7 @@ const isPending = (mode, path) => pending.value?.mode === mode && pending.value.
   <div>
     <div class="page-header">
       <div>
-        <h1>Devices</h1>
+        <h2>Devices</h2>
         <p>Computers synced by the Nextcloud desktop client, shown as first column in the overview.</p>
       </div>
       <button class="btn btn-primary" @click="openNew">+ Add Device</button>
