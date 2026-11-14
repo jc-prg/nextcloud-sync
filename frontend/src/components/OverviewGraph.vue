@@ -127,14 +127,16 @@ const deviceCards = computed(() =>
     })),
   })),
 )
-// One row per account folder the app uses
+// One row per account folder the app uses, named like the folders in account cards
+// (the account shows through the edge and the tooltip)
 const appCards = computed(() =>
   props.apps.map((app) => ({
     app,
     headKey: `app:${app.id}`,
     rows: app.folders.map((f, idx) => ({
       key: `app:${app.id}:${idx}`,
-      name: `${accountLabel(f.account_id)}:${normPath(f.account_path)}`,
+      name: segments(f.account_path).at(-1) ?? '/ (whole account)',
+      title: `${accountLabel(f.account_id)}:${normPath(f.account_path)}`,
       depth: 0,
       endpoint: accountIds.value.has(f.account_id),
     })),
@@ -391,6 +393,7 @@ function edgeTitle(rule) {
                 v-for="row in c.rows"
                 :key="row.key"
                 :data-node="row.key"
+                :title="row.title"
                 :class="{ endpoint: row.endpoint }"
                 :style="{ paddingLeft: 12 + row.depth * 16 + 'px' }"
               >
