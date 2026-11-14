@@ -17,7 +17,6 @@ const edges = ref([])
 const clientEdges = ref([])
 const appEdges = ref([])
 const sameLinks = ref([])
-const size = ref({ w: 0, h: 0 })
 const hovered = ref(null)
 
 let ro = null
@@ -158,7 +157,6 @@ function layoutEdges() {
   const el = wrap.value
   if (!el) return
   const base = el.getBoundingClientRect()
-  size.value = { w: el.scrollWidth, h: el.scrollHeight }
 
   const rects = new Map()
   el.querySelectorAll('[data-node]').forEach((n) => {
@@ -379,7 +377,7 @@ function edgeTitle(rule) {
 </script>
 
 <template>
-    <div class="graph-scroll">
+    <div class="graph-wrap">
       <div ref="wrap" class="graph" :class="{ 'with-apps': apps.length }" :style="{ '--cols': columns.length }">
         <div
           v-for="col in columns"
@@ -440,7 +438,7 @@ function edgeTitle(rule) {
           Not used by any rule: {{ unusedAccounts.map((a) => a.label).join(', ') }}
         </p>
 
-        <svg class="edges" :width="size.w" :height="size.h">
+        <svg class="edges">
           <defs>
             <marker
               v-for="m in [{ id: 'arrow', color: 'var(--primary)' }, { id: 'arrow-hot', color: 'var(--primary-hover)' }, { id: 'arrow-client', color: 'var(--client)' }, { id: 'arrow-app', color: 'var(--app)' }]"
@@ -503,21 +501,22 @@ function edgeTitle(rule) {
 </template>
 
 <style scoped>
-.graph-scroll { overflow-x: auto; }
+/* The graph shrinks to the available width, so it never needs its own scrollbars */
+.graph-wrap { min-width: 0; }
 .graph {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(var(--cols), 260px);
+  grid-template-columns: repeat(var(--cols), minmax(0, 260px));
   justify-content: start;
   --client: #8b5cf6;
   --app: #0d9488;
   align-items: start;
-  column-gap: 160px;
+  column-gap: clamp(24px, 10%, 160px);
   padding: 8px;
 }
 /* Room for edges looping from a destination card to an app card in the same column */
-.graph.with-apps { padding-right: 64px; }
-.col { display: flex; flex-direction: column; gap: 24px; }
+.graph.with-apps { padding-right: 56px; }
+.col { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
 .col-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0; }
 .unused { grid-column: 1 / -1; margin: 24px 0 0; font-size: 13px; color: var(--text-muted); }
 .node { overflow: hidden; cursor: grab; position: relative; }
@@ -536,6 +535,7 @@ function edgeTitle(rule) {
   color: var(--text); text-align: left; cursor: pointer; font: inherit;
 }
 .node-head:hover { background: var(--border-light); }
+.node-head > * { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .host { font-size: 12px; color: var(--text-muted); }
 .device .node-head { background: color-mix(in srgb, var(--client) 12%, var(--card-bg)); }
 .device .node-head:hover { background: color-mix(in srgb, var(--client) 20%, var(--card-bg)); }
@@ -550,7 +550,8 @@ function edgeTitle(rule) {
 .ico { margin-right: 6px; font-size: 10px; }
 .none { padding: 12px 14px; font-size: 13px; color: var(--text-muted); }
 
-.edges { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+/* Exactly the size of the graph; loops and arrow heads may paint outside without adding scroll area */
+.edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .same { fill: none; stroke: var(--error); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; }
 .edge { cursor: pointer; color: var(--primary); }
 .edge .hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
@@ -562,6 +563,6 @@ function edgeTitle(rule) {
 .edge.app, .edge.app.hot { color: var(--app); }
 
 @media (max-width: 640px) {
-  .graph { grid-template-columns: repeat(var(--cols), minmax(160px, 1fr)); column-gap: 56px; }
+  .graph { column-gap: clamp(16px, 6%, 56px); }
 }
 </style>
