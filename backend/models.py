@@ -138,3 +138,19 @@ class SyncLog(Base):
     path: Mapped[str | None] = mapped_column(String, nullable=True)
 
     job: Mapped["SyncJob"] = relationship("SyncJob", back_populates="logs")
+
+
+class Device(Base):
+    """A machine synced by the Nextcloud desktop client (e.g. a laptop).
+
+    next-sync does not sync it; it only describes a simulated folder tree for the
+    overview, where each folder may be linked to a folder of an account.
+    """
+
+    __tablename__ = "devices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    # JSON list of {"path": "/Documents", "account_id": 1 | null, "account_path": "/Docs" | null}
+    folders: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

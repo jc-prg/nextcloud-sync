@@ -53,11 +53,11 @@ Single Python process running FastAPI + APScheduler in the same event loop.
 - **`main.py`** — app factory, lifespan hook (calls `init_db()` and boots the scheduler)
 - **`config.py`** — `Settings` loaded from `.env` via pydantic-settings; imported as `settings` singleton
 - **`database.py`** — async SQLAlchemy engine + `SessionLocal`; `get_db()` is the FastAPI dependency
-- **`models.py`** — four ORM models: `Account`, `SyncRule`, `SyncJob`, `SyncLog`
+- **`models.py`** — ORM models: `Account`, `SyncRule`, `SyncJob`, `SyncLog`, `Device`
 - **`crypto.py`** — Fernet encrypt/decrypt; key comes from `settings.fernet_key`
 - **`auth.py`** — `verify_password` / `hash_password` (bcrypt), `create_access_token` / `get_current_user` (JWT via python-jose)
 
-**Routers** (`backend/routers/`): each file maps to one resource group (`/api/auth`, `/api/accounts`, `/api/rules`, `/api/browse`, `/api/jobs`). Routers access the scheduler via `request.app.state.scheduler`.
+**Routers** (`backend/routers/`): each file maps to one resource group (`/api/auth`, `/api/accounts`, `/api/rules`, `/api/browse`, `/api/jobs`, `/api/devices`). Routers access the scheduler via `request.app.state.scheduler`.
 
 **Sync layer** (`backend/sync/`):
 - `webdav.py` — `WebDAVClient` async context manager; `propfind(path, depth)` parses multistatus XML and returns `DavEntry` list with `rel_path` (relative to the account's WebDAV base)
@@ -72,6 +72,8 @@ Vue 3 SPA with `<script setup>` throughout.
 - **`stores/auth.js`** — Pinia store; holds JWT token (persisted in localStorage), `isConfigured` flag, setup/login/logout actions
 - **`router/index.js`** — navigation guard checks `auth.token`; if missing, calls `auth.checkSetup()` to decide between `/login` and `/setup`
 - **`components/FolderTree.vue`** — key component; maintains a flat ordered list of visible nodes (no recursive component). Expand calls `GET /api/browse?account_id=&path=` (depth=1). Collapse splices descendants from the list by depth comparison.
+- **`components/OverviewGraph.vue`** — dashboard overview: columns Devices (only if any exist), Sources, Destinations; account cards list the folders used by rules and device links, SVG edges are drawn from measured `data-node` rects
+- **`views/DevicesView.vue`** — edits devices (e.g. a laptop synced by the Nextcloud desktop client, which next-sync does not sync itself): a simulated folder tree (`utils/deviceTree.js`) whose folders can be linked to an account folder; a link is drawn to the account's source card, or its destination card if the account is only used as destination
 - **`views/RuleEditorView.vue`** — uses `FolderTree` with `v-model` for both source and destination path selection; shows the tree until a path is selected, then shows the selected path with a "Change" button
 
 ### Data Model
@@ -79,6 +81,7 @@ Vue 3 SPA with `<script setup>` throughout.
 ```
 Account ──< SyncRule (source_account_id, dest_account_id)
 SyncRule ──< SyncJob ──< SyncLog
+Device (folders: JSON list of {path, account_id, account_path}; display only)
 ```
 
 `SyncRule.schedule_cron` is a standard 5-field UTC cron expression fed directly to `CronTrigger.from_crontab()`.

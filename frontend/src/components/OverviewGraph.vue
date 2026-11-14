@@ -6,11 +6,13 @@ const router = useRouter()
 const props = defineProps({
   rules: { type: Array, required: true },
   accounts: { type: Array, required: true },
+  devices: { type: Array, default: () => [] },
 })
 const rules = computed(() => props.rules)
 const accounts = computed(() => props.accounts)
 const wrap = ref(null)
 const edges = ref([])
+const clientEdges = ref([])
 const sameLinks = ref([])
 const size = ref({ w: 0, h: 0 })
 const hovered = ref(null)
@@ -30,7 +32,7 @@ onBeforeUnmount(() => ro?.disconnect())
 
 const segments = (p) => (p || '').split('/').filter(Boolean)
 const normPath = (p) => '/' + segments(p).join('/')
-// side is 'src' (left column) or 'dst' (right column)
+// side is 'dev' (devices column), 'src' (sources) or 'dst' (destinations)
 const nodeKey = (side, accId, p) => `${side}:${accId}:${normPath(p)}`
 
 const accountIds = computed(() => new Set(accounts.value.map((a) => a.id)))
@@ -42,16 +44,38 @@ const drawable = computed(() =>
   ),
 )
 
+// Folders of devices (synced by the Nextcloud client) linked to an existing account.
+// The link goes to the account's source card; to its destination card only if the
+// account is used as destination alone.
+const deviceLinks = computed(() => {
+  const ruleSrc = new Set(drawable.value.map((r) => r.source_account_id))
+  const ruleDst = new Set(drawable.value.map((r) => r.dest_account_id))
+  const out = []
+  for (const device of props.devices) {
+    for (const folder of device.folders) {
+      const id = folder.account_id
+      if (!accountIds.value.has(id)) continue
+      const side = ruleSrc.has(id) || !ruleDst.has(id) ? 'src' : 'dst'
+      out.push({ device, folder, side })
+    }
+  }
+  return out
+})
+
 // Build one card per account and side, listing the folders used on that side (plus ancestors)
 function buildCards(side) {
   const idKey = side === 'src' ? 'source_account_id' : 'dest_account_id'
   const pathKey = side === 'src' ? 'source_path' : 'dest_path'
   const trees = new Map()
+  const endpoints = [
+    ...drawable.value.map((r) => [r[idKey], r[pathKey]]),
+    ...deviceLinks.value.filter((l) => l.side === side).map((l) => [l.folder.account_id, l.folder.account_path]),
+  ]
 
-  for (const r of drawable.value) {
-    if (!trees.has(r[idKey])) trees.set(r[idKey], { endpoint: false, children: new Map() })
-    let node = trees.get(r[idKey])
-    for (const seg of segments(r[pathKey])) {
+  for (const [accId, path] of endpoints) {
+    if (!trees.has(accId)) trees.set(accId, { endpoint: false, children: new Map() })
+    let node = trees.get(accId)
+    for (const seg of segments(path)) {
       if (!node.children.has(seg)) node.children.set(seg, { endpoint: false, children: new Map() })
       node = node.children.get(seg)
     }
@@ -76,6 +100,19 @@ function buildCards(side) {
     })
 }
 
+// Device folders are kept as a flat, tree-ordered list by the backend
+const deviceCards = computed(() =>
+  props.devices.map((device) => ({
+    device,
+    headKey: `dev:${device.id}`,
+    rows: device.folders.map((f) => ({
+      key: nodeKey('dev', device.id, f.path),
+      name: segments(f.path).at(-1),
+      depth: segments(f.path).length - 1,
+      endpoint: accountIds.value.has(f.account_id),
+    })),
+  })),
+)
 const sourceCards = computed(() => buildCards('src'))
 const destCards = computed(() => buildCards('dst'))
 const unusedAccounts = computed(() => {
@@ -127,6 +164,23 @@ function layoutEdges() {
   }
   edges.value = out
 
+  const client = []
+  for (const { device, folder, side } of deviceLinks.value) {
+    const s = rects.get(nodeKey('dev', device.id, folder.path))
+    const d = rects.get(nodeKey(side, folder.account_id, folder.account_path))
+    if (!s || !d) continue
+    const sy = s.cy + slot('v' + device.id + folder.path)
+    const dy = d.cy + slot(side[0] + folder.account_id + normPath(folder.account_path))
+    const mid = Math.max(40, (d.left - s.right) / 2)
+    client.push({
+      key: `${device.id}:${folder.path}`,
+      device,
+      title: `${device.label}:${folder.path} ⇄ ${accountLabel(folder.account_id)}:${normPath(folder.account_path)}\nNextcloud client`,
+      path: `M${s.right},${sy} C${s.right + mid},${sy} ${d.left - mid},${dy} ${d.left},${dy}`,
+    })
+  }
+  clientEdges.value = client
+
   const links = []
   for (const id of bothSides.value) {
     const s = rects.get(`src:${id}`)
@@ -138,7 +192,7 @@ function layoutEdges() {
   sameLinks.value = links
 }
 
-watch([sourceCards, destCards], async () => {
+watch([deviceCards, sourceCards, destCards], async () => {
   await nextTick()
   layoutEdges()
 })
@@ -150,6 +204,20 @@ function openRule(rule) {
 function openAccount(acc) {
   router.push({ path: '/accounts', query: { edit: acc.id } })
 }
+
+function openDevice(device) {
+  router.push({ path: '/devices', query: { edit: device.id } })
+}
+
+function accountLabel(id) {
+  return accounts.value.find((a) => a.id === id)?.label ?? `#${id}`
+}
+
+const columns = computed(() => [
+  ...(props.devices.length ? [{ side: 'dev', title: 'Devices', cards: deviceCards.value }] : []),
+  { side: 'src', title: 'Sources', cards: sourceCards.value },
+  { side: 'dst', title: 'Destinations', cards: destCards.value },
+])
 
 function host(url) {
   try { return new URL(url).host } catch { return url }
@@ -163,15 +231,20 @@ function edgeTitle(rule) {
 
 <template>
     <div class="graph-scroll">
-      <div ref="wrap" class="graph">
-        <div v-for="(cards, side) in { src: sourceCards, dst: destCards }" :key="side" class="col">
-          <h2 class="col-title">{{ side === 'src' ? 'Sources' : 'Destinations' }}</h2>
-          <div v-for="c in cards" :key="c.headKey" class="node card">
-            <button class="node-head" :data-node="c.headKey" title="Open account" @click="openAccount(c.acc)">
+      <div ref="wrap" class="graph" :style="{ '--cols': columns.length }">
+        <div v-for="col in columns" :key="col.side" class="col">
+          <h2 class="col-title">{{ col.title }}</h2>
+          <div v-for="c in col.cards" :key="c.headKey" class="node card" :class="{ device: col.side === 'dev' }">
+            <button v-if="c.device" class="node-head" :data-node="c.headKey" title="Edit device" @click="openDevice(c.device)">
+              <strong>{{ c.device.label }}</strong>
+              <span class="host">Nextcloud client</span>
+            </button>
+            <button v-else class="node-head" :data-node="c.headKey" title="Open account" @click="openAccount(c.acc)">
               <strong>{{ c.acc.label }}</strong>
               <span class="mono host">{{ host(c.acc.webdav_url) }}</span>
             </button>
-            <ul class="folders">
+            <p v-if="c.rows.length === 0" class="none">No folders yet</p>
+            <ul v-else class="folders">
               <li
                 v-for="row in c.rows"
                 :key="row.key"
@@ -191,7 +264,7 @@ function edgeTitle(rule) {
         <svg class="edges" :width="size.w" :height="size.h">
           <defs>
             <marker
-              v-for="m in [{ id: 'arrow', color: 'var(--primary)' }, { id: 'arrow-hot', color: 'var(--primary-hover)' }]"
+              v-for="m in [{ id: 'arrow', color: 'var(--primary)' }, { id: 'arrow-hot', color: 'var(--primary-hover)' }, { id: 'arrow-client', color: 'var(--client)' }]"
               :id="m.id"
               :key="m.id"
               viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"
@@ -200,6 +273,19 @@ function edgeTitle(rule) {
             </marker>
           </defs>
           <path v-for="l in sameLinks" :key="'same' + l.id" class="same" :d="l.path" />
+          <g
+            v-for="e in clientEdges"
+            :key="'client' + e.key"
+            class="edge client"
+            :class="{ hot: hovered === 'client' + e.key }"
+            @click="openDevice(e.device)"
+            @mouseenter="hovered = 'client' + e.key"
+            @mouseleave="hovered = null"
+          >
+            <title>{{ e.title }}</title>
+            <path class="hit" :d="e.path" />
+            <path class="line" :d="e.path" marker-start="url(#arrow-client)" marker-end="url(#arrow-client)" />
+          </g>
           <g
             v-for="e in edges"
             :key="e.rule.id"
@@ -229,8 +315,9 @@ function edgeTitle(rule) {
 .graph {
   position: relative;
   display: grid;
-  grid-template-columns: 260px 260px;
+  grid-template-columns: repeat(var(--cols), 260px);
   justify-content: start;
+  --client: #8b5cf6;
   align-items: start;
   column-gap: 160px;
   padding: 8px;
@@ -247,6 +334,8 @@ function edgeTitle(rule) {
 }
 .node-head:hover { background: var(--border-light); }
 .host { font-size: 12px; color: var(--text-muted); }
+.device .node-head { background: color-mix(in srgb, var(--client) 12%, var(--card-bg)); }
+.device .node-head:hover { background: color-mix(in srgb, var(--client) 20%, var(--card-bg)); }
 .folders { list-style: none; margin: 0; padding: 6px 0; }
 .folders li {
   padding: 5px 12px; font-size: 13px; color: var(--text-light);
@@ -264,8 +353,9 @@ function edgeTitle(rule) {
 .edge.off .line { stroke-dasharray: 5 4; opacity: .55; }
 .edge.hot .line { stroke-width: 3.5; }
 .edge.hot { color: var(--primary-hover); }
+.edge.client, .edge.client.hot { color: var(--client); }
 
 @media (max-width: 640px) {
-  .graph { grid-template-columns: 1fr 1fr; column-gap: 56px; }
+  .graph { grid-template-columns: repeat(var(--cols), minmax(160px, 1fr)); column-gap: 56px; }
 }
 </style>

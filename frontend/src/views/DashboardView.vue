@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { rulesApi } from '@/api/rules'
 import { jobsApi } from '@/api/jobs'
 import { accountsApi } from '@/api/accounts'
+import { devicesApi } from '@/api/devices'
 import StatusBadge from '@/components/StatusBadge.vue'
 import OverviewGraph from '@/components/OverviewGraph.vue'
 import { useRouter } from 'vue-router'
@@ -11,6 +12,7 @@ const router = useRouter()
 const rules = ref([])
 const latestJobs = ref({}) // rule_id → SyncJob
 const accounts = ref([])
+const devices = ref([])
 const quotas = ref({}) // account_id → { used, available }
 const loading = ref(true)
 const triggering = ref(null)
@@ -22,9 +24,12 @@ onMounted(async () => {
 async function refresh() {
   loading.value = true
   try {
-    const [rulesData, accountsData] = await Promise.all([rulesApi.list(), accountsApi.list()])
+    const [rulesData, accountsData, devicesData] = await Promise.all([
+      rulesApi.list(), accountsApi.list(), devicesApi.list(),
+    ])
     rules.value = rulesData
     accounts.value = accountsData
+    devices.value = devicesData
     await Promise.all([
       ...rulesData.map(async (rule) => {
         const data = await jobsApi.list({ rule_id: rule.id, limit: 1 })
@@ -133,11 +138,11 @@ function usedPercent(account) {
 
     <template v-else>
       <!-- Overview graph -->
-      <template v-if="accounts.length > 0">
+      <template v-if="accounts.length > 0 || devices.length > 0">
         <div class="section-header">
           <h2>Overview</h2>
         </div>
-        <OverviewGraph :accounts="accounts" :rules="rules" style="margin-bottom:40px;" />
+        <OverviewGraph :accounts="accounts" :rules="rules" :devices="devices" style="margin-bottom:40px;" />
       </template>
 
       <!-- Accounts -->
