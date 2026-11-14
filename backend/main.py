@@ -51,7 +51,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="jc://next-sync/",
         description="Nextcloud WebDAV sync manager",
-        version="0.5.3",
+        version="0.5.4",
         lifespan=lifespan,
     )
 
